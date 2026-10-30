@@ -1,12 +1,19 @@
 // スタブ実行ハーネス:HTML内の<script>を Node で走らせ、ReferenceError や
 // 初期化順序バグ(前方参照)を検出する。ブラウザ専用APIはProxyでスタブ化する。
-//   使い方: node tools/harness.js [keikyu_shinagawa_3d.html]
+//   使い方: node tools/harness.js [path/to/keio_elevated_3d.html]
 const fs = require('fs');
-const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
+const path = process.argv[2] || 'keio_elevated_3d.html';
 const html = fs.readFileSync(path, 'utf8');
 const m = html.match(/<script>([\s\S]*?)<\/script>/);
 if (!m) { console.error('NO_SCRIPT'); process.exit(1); }
 const code = m[1];
+// 別ファイルの沿線の建物データ(あれば先に読む)
+{
+  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js']) {
+    const pl = require('path').join(require('path').dirname(path), nm);
+    if (html.includes('<script src="' + nm + '">') && fs.existsSync(pl)) (0, eval)(fs.readFileSync(pl, 'utf8'));
+  }
+}
 
 // 何でも受け止めるProxy(メソッド呼び出し・プロパティアクセス・new すべて許容)
 const anything = new Proxy(function () {}, {

@@ -2,7 +2,7 @@
 """パッチ適用のヘルパー。厳密一致置換で、失敗時は書き込む前に停止する。
 
   from tools.patch_helper import Patcher
-  p = Patcher('keikyu_shinagawa_3d.html')
+  p = Patcher('keio_elevated_3d.html')
   p.rep('置換前の厳密一致文字列', '置換後')      # 1回だけ出現する前提。違えば例外
   p.insert_before('アンカー', '挿入するコード')
   p.save()                                        # ここで初めてファイルへ書き込む
