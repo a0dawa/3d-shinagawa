@@ -153,7 +153,7 @@
 <div class="panel" id="tools">
   <button id="btnHome">全体俯瞰(地図の向き)</button>
   <button id="btnRide" class="ride">運転モード OFF</button>
-  <div class="seg" id="segRide" role="group" aria-label="運転の種別"><b>種別</b><button data-k="特急">特急</button><button data-k="各停">各停</button></div>
+  <div class="seg" id="segRide" role="group" aria-label="運転の種別"><b>種別</b><button data-k="快特">快特</button><button data-k="普通">普通</button></div>
   <button id="btnChase" class="ride">列車追尾 OFF</button>
   <button id="btnOrbit">自動旋回 OFF</button>
   <button id="btnTrain" class="on">列車走行 ON</button>
@@ -3106,21 +3106,20 @@ function pidsTrack(t,arrow){
    笹塚の上りは3番線=新宿行き・4番線=本八幡行き(京王新線・都営新宿線) */
 const DEP_NOW={morning:7*60+30, noon:12*60, evening:17*60+30, night:21*60};
 let depNow=DEP_NOW.noon;
-const DEP_COL={'特急':'#ff4038','急行':'#2fd36a','区急':'#b6e33a','各停':'#f4f4f4'};
-const DEP_STOP={'特急':['笹塚','明大前','千歳烏山'], '急行':['笹塚','明大前','桜上水','千歳烏山'],
-                '区急':['笹塚','明大前','桜上水','千歳烏山','仙川']};
+// 品川版:種別の色・停車駅・並びは**推定の模式**(京急の実際のダイヤ・表示色ではない)。dn=エンジンの下り(+s)=泉岳寺方面
+const DEP_COL={'快特':'#3fd46a','普通':'#f4f4f4'};
+const DEP_STOP={'快特':['品川']};
 const DEP_PAT={
-  dn:[[0,'特急','京王八王子'],[3,'各停','京王八王子'],[6,'急行','橋本'],[10,'特急','高尾山口'],[13,'各停','調布'],[16,'区急','橋本']],
-  up:[[1,'特急','新宿'],[4,'各停','本八幡'],[7,'急行','新宿'],[11,'特急','新宿'],[14,'各停','新宿'],[17,'区急','本八幡']],
+  dn:[[0,'快特','泉岳寺'],[5,'普通','品川'],[10,'快特','青砥'],[15,'普通','泉岳寺']],
+  up:[[2,'快特','三崎口'],[7,'普通','浦賀'],[12,'快特','京急久里浜'],[17,'普通','浦賀']],
 };
 function depList(i,t){                    // 駅 i・線 t の次の2本 [種別,行先,分]
   const st=STA[i], base=t.dn?STA[0]:STA[STA.length-1], out=[];
   for(let k=-2;k<=3;k++) for(const e of DEP_PAT[t.dn?'dn':'up']){
     const ty=e[1], to=e[2], stops=DEP_STOP[ty];
     if(stops&&stops.indexOf(st.n)<0) continue;
-    if(st.n==='笹塚'&&!t.dn){ if((t.n===3)!==(to==='新宿')) continue; }
-    else if(t.quad&&((ty==='各停')!==t.outer)) continue;
-    const T=Math.floor(depNow/20)*20+20*k+e[0]+Math.round(Math.abs(st.x-base.x)/(ty==='各停'?520:900));
+    if(t.quad&&((ty==='普通')!==t.outer)) continue;
+    const T=Math.floor(depNow/20)*20+20*k+e[0]+Math.round(Math.abs(st.x-base.x)/(ty==='普通'?520:900));
     if(T>=depNow) out.push([ty,to,T]);
   }
   return out.sort((a,b)=>a[2]-b[2]).slice(0,2);
@@ -3142,7 +3141,7 @@ function drawDep(c,x,y,W,H,d){
     c.fillStyle=DEP_COL[e[0]]; pFit(c,e[0],32,72,'800'); c.fillText(e[0],x+50,cy);
     c.fillStyle='#ffa41c'; pFit(c,hm,32,92,'800'); c.fillText(hm,x+130,cy);
     pFit(c,e[1],32,170,'800'); c.fillText(e[1],x+232,cy);
-    c.textAlign='right'; pFit(c,'10両',24,60,'700'); c.fillText('10両',x+W-8,cy);
+    c.textAlign='right'; pFit(c,'8両',24,60,'700'); c.fillText('8両',x+W-8,cy);
   });
   c.fillStyle='rgba(0,0,0,.45)';                                                // LED の粒(3画素ごとの目地)
   for(let yy=y+30;yy<y+H;yy+=3) c.fillRect(x,yy,W,1);
@@ -5043,7 +5042,7 @@ const K8_FORMATIONS={
            panto:[2,4,5,8,9], motor:[2,3,4,5,8,9]},   // 上りの各停(8714Fにならって推定)
 };
 // 種別表示の文字色(sRGB)。特急は v4 の値、各停(白)は v4 でも推定
-const K8_KIND_COLORS={'特急':'#ff2e14','急行':'#2fd36a','各停':'#fff8ee'};
+const K8_KIND_COLORS={'快特':'#3fd46a','普通':'#fff8ee'};   // 前面・側面の種別の文字色(推定)
 
 /* ---- 9-2. 断面と前面の平面形(prof_rows / nose_x を移植) ------------------- */
 // 断面:すその丸み → 垂直な側面 → 肩(超楕円) → 屋根頂部。帯・窓・扉の境目に頂点を置く
@@ -5607,7 +5606,7 @@ function k8DestTxt(d){ return d==='新宿'?'新  宿':d; }
    左右の灯は車体の中心線に対称に置く(利用者指示。表示器は左右で幅が違うので、外側の行先の左端に合わせて
    |y| 1.195〜1.255。種別の右とは 0.185m 空く)。[y0,y1] の組 ×2 と z 下端・上端 */
 const K8_PASS={Y:[[-1.255,-1.195],[1.195,1.255]], Z:[3.115,3.265]};
-function k8PassOn(o){ return !!(o.sign&&o.lights==='head'&&o.sign.kind!=='各停'); }
+function k8PassOn(o){ return !!(o.sign&&o.lights==='head'&&o.sign.kind!=='普通'); }
 /* s>1 は文字の高さを s 倍に(幅が表示器に収まらないときは、高さを保ったまま横を詰める) */
 function k8Led(txt,color,w,h,s){
   s=s||1;
@@ -6613,15 +6612,15 @@ function k8CarSpec(form,n){
 /* ---- 走行列車(7本。TRAIN_DEF)。各駅停車・急行・特急を自動運転で走らせる ----
    加速=P4(3.3km/h/s), 上限=60km/h, 減速=B5(3.0km/h/s), 停車時間=25秒。
    状態機械: 'run'(駅間走行) → 'brake'(停止位置へ減速) → 'dwell'(25秒停車) → 'run' */
-const DRIVE={ACC:3.3, DEC:3.0, VMAX_KMH:60, DWELL:25};   // 自動運転パラメータ
+const DRIVE={ACC:3.3, DEC:3.0, VMAX_KMH:60, DWELL:30};   // 停車30秒(推定)   // 自動運転パラメータ
 // 駅別の停車時間[秒](未記載の駅は DRIVE.DWELL)。待避線に入る駅は1分。
-const DWELL_OF={'八幡山':60,'明大前':60,'桜上水':60,'千歳烏山':60};
+const DWELL_OF={};   // 駅別の停車時間(品川版は無し)
 /* 列車の種別(利用者指示:各停以外は識別灯が点く。点く列車を走らせる)。
    各停 …… 全駅に停まり、待避駅(DIVERT)では待避線・停車線へ入る。上限60km/h
    特急・急行 …… 停車駅は発車標と同じ表(DEP_STOP。特急=笹塚・明大前・千歳烏山/急行=それと桜上水)。待避線には
             入らず本線(八幡山は外側の通過線)を通り、2面4線の駅では本線側(内側)のホームに停まる。上限90km/h・停車25秒 */
-const TRAIN_KIND={'各停':{vmax:60},'急行':{vmax:90},'特急':{vmax:90}};
-function isLocal(t){ return !t.kind||t.kind==='各停'; }
+const TRAIN_KIND={'普通':{vmax:60},'快特':{vmax:90}};
+function isLocal(t){ return !t.kind||t.kind==='普通'; }
 function stopsAt(t,st){ return isLocal(t)||(DEP_STOP[t.kind]||[]).indexOf(st.n)>=0; }
 function trainOff(t,x){ return isLocal(t)?runOff(x):mainOff(x); }          // その列車が走る線(北が+)
 function trainZf(t){ return t.dir>0?(isLocal(t)?zRunDown:zDown):(isLocal(t)?zRunUp:zUp); }
@@ -6633,19 +6632,17 @@ const trains=[];
    上りの各停・急行の行先は笹塚の4番線(新線新宿・本八幡方面)に合わせ、9000系は本八幡(都営新宿線へ直通)、
    8000系は新線新宿(都営線へは直通しない)。
    trains[0] は下りの各停、上りの最初(trains の並びで)は特急(検証と撮影が使う)。足す列車は後ろへ */
-const TRAIN_DEF=[[1,300,'各停','8714F','京王八王子'],[1,3000,'各停','9731F','京王八王子'],
-                 [1,-380,'急行','9733F','橋本'],[-1,5600,'特急','8713F','新宿'],
-                 [-1,7200,'各停','9735F','本八幡'],[-1,8000,'急行','9736F','本八幡'],
-                 [-1,2900,'各停','8715F','新線新宿']];
+/* 品川版:2100形8両の快特4本(品川だけに停まる。推定の模式)。dir>0=+s=泉岳寺方面(京急の上り)・dir<0=三崎口方面(下り)。
+   編成は浦賀方から n 両目で決まる(k8CarSpec)。+s へ走る列車の先頭 j=0 は泉岳寺方=8号車 */
+const TRAIN_DEF=[[1,-150,'快特','2101F','泉岳寺'],[1,1000,'快特','2109F','青砥'],
+                 [-1,1950,'快特','2117F','三崎口'],[-1,600,'快特','2125F','京急久里浜']];
+const TRAIN_CARS=8;
 TRAIN_DEF.forEach(function(a){
-  const dir=a[0], xs=a[1], kind=a[2], form=a[3], dest=a[4], cars=[];
-  /* 編成は v4 の 8714F/8713F と 9000系。車番・パンタ・電動車は「新宿方から何両目」で決まる。
-     下り(dir>0・西へ)は先頭 j=0 が京王八王子方=新宿方から10両目。上りは逆。
-     車体ローカル+x は進行方向なので、京王八王子方(西)の向き hachi は dir と同じ符号。 */
-  for(let j=0;j<10;j++){
-    const n=dir>0?10-j:j+1, sp=k8CarSpec(form,n);
-    cars.push(makeCar({cabF:j===0, cabR:j===9, panto:sp.panto, motor:sp.motor, num:sp.num, series:sp.series,
-      hachi:dir>0?1:-1, lights:j===0?'head':(j===9?'tail':'off'),
+  const dir=a[0], xs=a[1], kind=a[2], form=a[3], dest=a[4], cars=[], N=TRAIN_CARS;
+  for(let j=0;j<N;j++){
+    const n=dir>0?N-j:j+1, sp=k8CarSpec(form,n);
+    cars.push(makeCar({cabF:j===0, cabR:j===N-1, panto:sp.panto, panto2:sp.panto2, motor:sp.motor, num:sp.num, series:sp.series,
+      hachi:dir>0?1:-1, lights:j===0?'head':(j===N-1?'tail':'off'),
       sign:{kind:kind, dest:dest}, crowd:j%3}));
   }
   const reset=(dir>0)?(DOM.x0-210):(DOM.x1+210);
@@ -6677,7 +6674,7 @@ function dwellOf(st,t){ return (t&&!isLocal(t))?DRIVE.DWELL:((st&&DWELL_OF[st.n]
      突っ込まない)。各停の自列車が待避線・停車線に全体で入っていれば、優等列車は塞がない(追い越す)。
    検証の単独の列車(trains に無い)は間隔も待避も見ない(ほかの列車に止められずに全線を走る)。 */
 const HEAD={MARGIN:40, HOLD:1800, LANE:3.0, START:60};
-const trainLen=t=>((t.cars?t.cars.length:10)-1)*K8.PITCH+K8.LEN;     // 編成長(前の連結面から後ろの連結面まで)
+const trainLen=t=>((t.cars?t.cars.length:TRAIN_CARS)-1)*K21.PITCH+K21.LEN;     // 編成長(前の連結面から後ろの連結面まで)
 const headFront=t=>t.x+t.dir*CAR_HALF;                                 // 先頭の前端(t.x は先頭車の中心)
 const tailRear=t=>headFront(t)-t.dir*trainLen(t);                     // 最後尾の後端
 function inLoop(t){                       // 待避線・停車線に全体が入っているか(本線から LANE 以上離れた線)
@@ -6719,7 +6716,7 @@ function expressBehind(t){                // すぐ後ろ(または並び)の同
    ・列車が分岐器(先端〜後端±2m)に載っている間は転換しない(鎖錠)。転換は SW.THROW 秒。
    ・列車は進路へ転換し終わっていない分岐器の手前で止まる(gapAhead)。撮影で列車を置き直したら syncSwitches */
 const SW={LOOK:600, THROW:3.0};
-const RIDE_LEN=9*K8.PITCH+K8.LEN;
+const RIDE_LEN=(TRAIN_CARS-1)*K21.PITCH+K21.LEN;
 function routeB(t,W){                     // 列車 t がこの分岐器を B(待避線・停車線)へ通るか。通らなければ null
   const T=W.T, zf=trainZf(t);
   if(Math.abs(zf(T.s)-T.A.zf(T.s))>0.5) return null;                 // 別の線(反対の方向の線など)
@@ -6805,7 +6802,7 @@ function driveTrain(t,dt){
 }
 
 // 車両は「前後の車端2点を結ぶ弦」に沿って配置する(曲線でも必ず線路方向を向く)
-const CAR_HALF=K8.LEN/2;
+const CAR_HALF=K21.LEN/2;
 syncSwitches();                           // 初めの位置で分岐器に載っている列車があればその進路へ(CAR_HALF の後)
 // 車端2点の実位置から姿勢(ヨー+ピッチ)を決める。勾配区間でも車体が線路に沿う
 let LOD_NEAR=420;   // この距離までは高精細モデル(スマホでは短縮)
@@ -6861,7 +6858,7 @@ function carLit(c,s){
 function placeTrain(t){
   const zf=trainZf(t);   // 各停は八幡山で内側(停車線)・待避駅で待避線へ、特急は本線のまま
   for(let j=0;j<t.cars.length;j++){
-    const s=t.x-t.dir*j*K8.PITCH, c=t.cars[j];
+    const s=t.x-t.dir*j*K21.PITCH, c=t.cars[j];
     const inside=(s>DOM.x0+CAR_HALF && s<DOM.x1-CAR_HALF);
     c.visible = inside && trainsOn;
     if(inside) seatCar(c, s, zf, t.dir);      // 見えている車両だけ弦法で姿勢決定
@@ -6926,9 +6923,9 @@ for(const d of PSD_DEF){
     }
     const stop=stopPosOf(st,dir)-dir*CAR_HALF;          // 先頭車の中心
     const open=[];
-    for(let j=0;j<10;j++){                              // 10両
-      const cs=stop-dir*j*K8.PITCH;
-      for(const dx of K8.DOORX) open.push(cs+dir*dx);   // 1両4箇所
+    for(let j=0;j<TRAIN_CARS;j++){                      // 8両
+      const cs=stop-dir*j*K21.PITCH;
+      for(const dx of K21.DOORX) open.push(cs+dir*dx);  // 1両2箇所(2100形)
     }
     open.sort((a,b)=>a-b);
     // その扉列から見て、列車のどちらの"面"(車体ローカルzの符号)がホーム側か。
@@ -7839,12 +7836,12 @@ let rideYaw=0, ridePitch=0;   // 運転モードの首振り(ドラッグで変�
             それ以外の駅(代田橋・下高井戸・桜上水・上北沢・八幡山・芦花公園・仙川)では停止位置に停まってもホームドア・扉を開けない
    各停 …… 待避駅(DIVERT)では自動運転の各停と同じく待避線(明大前・桜上水・千歳烏山)・停車線(八幡山)へ入り、全駅で扉を開ける
    自動運転の列車と同じ判定(isLocal・trainZf・stopsAt・routeB)を使えるよう、種別と向きを持つ擬似の列車 RIDE_T にする */
-let rideKind='特急';
-const RIDE_T={dir:1, kind:'特急'};
-const rideLocal=()=>rideKind==='各停';
+let rideKind='快特';
+const RIDE_T={dir:1, kind:'快特'};
+const rideLocal=()=>rideKind==='普通';
 const rideOff=x=>rideLocal()?runOff(x):mainOff(x);       // 自列車が走る線の振れ(北が+。下りなので位置は −rideOff)
 const rideZf=x=>-rideOff(x);
-function setRideKind(k){ rideKind=(k==='各停')?'各停':'特急'; RIDE_T.kind=rideKind; }
+function setRideKind(k){ rideKind=(k==='普通')?'普通':'快特'; RIDE_T.kind=rideKind; }
 const rideStops=st=>stopsAt(RIDE_T,st);                   // 自列車の停車駅(特急は通過駅を除く)
 function rideInLoop(){                                     // 各停の自列車が待避線・停車線に全体で入っているか(優等列車に追い越される)
   if(!rideLocal()) return false;
