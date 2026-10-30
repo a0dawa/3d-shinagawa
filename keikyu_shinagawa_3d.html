@@ -1506,8 +1506,11 @@ const ROAD_Y=[0.10,0.12,0.12], EXPY_TOP=11.5, EXPY_DEPTH=1.8;
    ・実データの道路と建物(plateau_land.js・plateau_bldg.js)があるときだけ使う(模式の街・道路は平らなまま)。スマホも同じ
    ・登録簿 TER(格子の高さ H・平らなセル flat・線路の地盤 GS・平らな所の定義 CORR/DISC) */
 const PLD=(typeof globalThis!=='undefined'&&globalThis.PLATEAU_DEM&&globalThis.PLATEAU_DEM.h64)?globalThis.PLATEAU_DEM:null;
-const TER={on:!!(PLD&&PLL&&HAS_PLB), DX:25, X0:-9100, X1:1900, Z0:-1950, Z1:3250,
-  AS:21, BL:40, FAR0:480, FAR1:600, END0:100, END1:300, CLOSE:2, BLUR:1, GS_SIG:60, GS_OFF:20,
+/* 品川版(2026-10-30):地形は**絶対の標高**(Y=TP−Y_TP)。京王版は線路の地盤を 0 にした相対の起伏だったが、品川版の縦断(RAW.prof)は
+   TP で決めているので、地盤の高さが 0〜6m 変わる区間(北品川の西は御殿山の斜面)で高架の高さが狂う。構造物の帯の中は線路の地盤
+   Gs(s)−Y_TP(なめらか)にそろえ、帯の外は標高のまま、遠く(FAR)と事業区間の両端の外(END)で 0 へ戻す */
+const TER={on:!!(PLD&&PLL&&HAS_PLB), DX:25, X0:-1075, X1:850, Z0:-2600, Z1:1300,
+  AS:21, BL:40, FAR0:480, FAR1:600, END0:100, END1:300, CLOSE:0, BLUR:1, GS_SIG:60, GS_OFF:20,
   GX:0, GZ:0, H:null, NN:null, flat:null, GS:null, stat:{}};
 TER.GX=Math.round((TER.X1-TER.X0)/TER.DX); TER.GZ=Math.round((TER.Z1-TER.Z0)/TER.DX);
 TER.CORR=[];   // 交差鉄道の平らな所(品川版は無し。JR 等の線路は地形のまま)
@@ -1526,10 +1529,10 @@ TER.prj=(x,z)=>{
   return q;
 };
 // 起伏を残す重み(0=平ら・1=起伏のまま)。off/s は線路の座標、x,z は世界座標
-TER.weight=(s,off,x,z)=>{
-  const a=Math.abs(off);
-  let w=sstep((a-TER.AS)/TER.BL)*(1-sstep((a-TER.FAR0)/(TER.FAR1-TER.FAR0)))
+TER.wFar=(s,off)=>(1-sstep((Math.abs(off)-TER.FAR0)/(TER.FAR1-TER.FAR0)))
        *(1-sstep((DOM.x0-TER.END0-s)/(TER.END1-TER.END0)))*(1-sstep((s-DOM.x1-TER.END0)/(TER.END1-TER.END0)));
+TER.weight=(s,off,x,z)=>{                          // 帯の重み(0=構造物の帯の中・1=標高のまま)
+  let w=sstep((Math.abs(off)-TER.AS)/TER.BL);
   for(const C of TER.CORR) w*=sstep(TER.corrD(C,x,z)/C.bl);
   for(const D of TER.DISC) w*=sstep((Math.hypot(x-D.p.x,z-D.p.z)-D.r)/D.bl);
   return w;
@@ -1579,10 +1582,13 @@ if(TER.on){
   const inDem=(x,z)=>x>D.x0+D.dx&&x<D.x0+(NX-1)*D.dx&&z>D.z0+D.dx&&z<D.z0+(NZ-1)*D.dx;
   for(let j=0;j<=TER.GZ;j++)for(let i=0;i<=TER.GX;i++){
     const x=TER.X0+i*TER.DX, z=TER.Z0+j*TER.DX; if(!inDem(x,z)) continue;
-    const q=TER.prj(x,z), w=TER.weight(q.s,q.off,x,z); if(w<=0) continue;
-    const h=dem(x,z)-TER.gsAt(q.s); if(h!==h) continue;
-    const v=w*h; H[j*W+i]=Math.abs(v)<0.003?0:v;
+    const q=TER.prj(x,z), wf=TER.wFar(q.s,q.off); if(wf<=0) continue;
+    const g=TER.gsAt(q.s)-Y_TP, w=TER.weight(q.s,q.off,x,z), h=dem(x,z)-Y_TP; if(h!==h) continue;
+    const v=wf*(g+w*(h-g)); H[j*W+i]=Math.abs(v)<0.003?0:v;
   }
+  // 帯の中のセルの隅に置く高さ(線路の地盤。遠くの重みは掛ける)
+  const base=(x,z)=>{const q=TER.prj(x,z), v=TER.wFar(q.s,q.off)*(TER.gsAt(q.s)-Y_TP); return Math.abs(v)<0.003?0:v;};
+  const FORCE=new Uint8Array(TER.GX*TER.GZ);
   let nForce=0;
   for(let j=0;j<TER.GZ;j++)for(let i=0;i<TER.GX;i++){
     const x=TER.X0+(i+0.5)*TER.DX, z=TER.Z0+(j+0.5)*TER.DX; if(!inDem(x,z)) continue;
@@ -1590,9 +1596,10 @@ if(TER.on){
     let f=Math.abs(q.off)-hd<=TER.AS;
     for(const C of TER.CORR) if(TER.corrD(C,x,z)-hd<=0) f=true;
     for(const Dc of TER.DISC) if(Math.hypot(x-Dc.p.x,z-Dc.p.z)-hd<=Dc.r) f=true;
-    if(f){ H[j*W+i]=0; H[j*W+i+1]=0; H[(j+1)*W+i]=0; H[(j+1)*W+i+1]=0; nForce++; }
+    if(f){ for(const [a,b] of [[0,0],[1,0],[0,1],[1,1]]) H[(j+b)*W+i+a]=base(TER.X0+(i+a)*TER.DX,TER.Z0+(j+b)*TER.DX); FORCE[j*TER.GX+i]=1; nForce++; }
   }
-  for(let j=0;j<TER.GZ;j++)for(let i=0;i<TER.GX;i++){const k=j*W+i; F[j*TER.GX+i]=(H[k]===0&&H[k+1]===0&&H[k+W]===0&&H[k+W+1]===0)?1:0;}
+  // 平らなセル=帯の中(起伏を消したセル。高さは線路の地盤)か、4隅とも 0(遠く)
+  for(let j=0;j<TER.GZ;j++)for(let i=0;i<TER.GX;i++){const k=j*W+i; F[j*TER.GX+i]=(FORCE[j*TER.GX+i]||(H[k]===0&&H[k+1]===0&&H[k+W]===0&&H[k+W+1]===0))?1:0;}
   // 頂点の法線(中央差分)。平らなセルの隅は真上(平らな面と同じ。継ぎ目で陰が跳ばない)
   const NN=new Float32Array(3*W*(TER.GZ+1));
   const hAt=(i,j)=>H[clamp(j,0,TER.GZ)*W+clamp(i,0,TER.GX)];
@@ -1720,7 +1727,7 @@ function cutHolePoly(){                        // 穴(擁壁の芯):南の線を
 }
 const groundMesh=(function(){
  const X0=TER.X0,X1=TER.X1,Z0=TER.Z0,Z1=TER.Z1, P=[], N=[], I=[];
- const poly=cutHolePoly(), n=poly.length;
+ const poly0=cutHolePoly(), poly=poly0, n=poly.length;
  const quad=(a,b,c,d)=>{const o=P.length/3; for(const q of[a,b,c,d]){P.push(q[0],0,q[1]); N.push(0,1,0);}
    const up=(b[1]-a[1])*(c[0]-a[0])-(b[0]-a[0])*(c[1]-a[1]);           // 上向き(+y)の巻き順に
    if(up>=0) I.push(o,o+1,o+2,o,o+2,o+3); else I.push(o,o+2,o+1,o,o+3,o+2);};
@@ -1740,12 +1747,21 @@ const groundMesh=(function(){
    quad([xa,hit[1][1]],[xa,Z1],[xb,Z1],[xb,hit[1][2]]);                  // 穴の南
  }
  }else{
- const DX=TER.DX, GX=TER.GX, GZ=TER.GZ, W=GX+1, HH=TER.H, NN=TER.NN, F=TER.flat;
+ /* 品川版:掘割の穴は南北に長い(z の向き)。この作り方は穴が x の向きに単調な前提なので、x と z を入れ替えた格子で作って
+    最後に頂点の x・z と法線を戻す(入れ替えは鏡映なので三角形の巻き順も裏返す) */
+ const SW=(()=>{let a=1e9,b=-1e9,c=1e9,d=-1e9; for(const p of poly0){a=Math.min(a,p[0]);b=Math.max(b,p[0]);c=Math.min(c,p[1]);d=Math.max(d,p[1]);} return d-c>b-a;})();
+ const DX=TER.DX, GX=SW?TER.GZ:TER.GX, GZ=SW?TER.GX:TER.GZ, W=GX+1, X0=SW?TER.Z0:TER.X0, Z0=SW?TER.X0:TER.Z0;
+ const W0=TER.GX+1, HH=new Float32Array(W*(GZ+1)), NN=new Float32Array(3*W*(GZ+1)), F=new Uint8Array(GX*GZ);
+ for(let j=0;j<=GZ;j++)for(let i=0;i<=GX;i++){const k=j*W+i, k0=SW?i*W0+j:k;
+   HH[k]=TER.H[k0]; NN[3*k]=TER.NN[3*k0+(SW?2:0)]; NN[3*k+1]=TER.NN[3*k0+1]; NN[3*k+2]=TER.NN[3*k0+(SW?0:2)];}
+ for(let j=0;j<GZ;j++)for(let i=0;i<GX;i++) F[j*GX+i]=TER.flat[SW?i*TER.GX+j:j*GX+i];
+ const poly=SW?poly0.map(p=>[p[1],p[0]]):poly0;
+ const terHs=(x,z)=>SW?terH(z,x):terH(x,z);
  const NV=new Int32Array(W*(GZ+1)).fill(-1);
  const node=(i,j)=>{const k=j*W+i; if(NV[k]<0){NV[k]=P.length/3; P.push(X0+i*DX,HH[k],Z0+j*DX); N.push(NN[3*k],NN[3*k+1],NN[3*k+2]);} return NV[k];};
  const pt=(x,z)=>{const i=Math.round((x-X0)/DX), j=Math.round((z-Z0)/DX);   // 格子の点なら共有、ほかは新しい頂点(平ら・真上)
    if(Math.abs(X0+i*DX-x)<1e-7&&Math.abs(Z0+j*DX-z)<1e-7&&i>=0&&j>=0&&i<=GX&&j<=GZ) return node(i,j);
-   P.push(x,0,z); N.push(0,1,0); return P.length/3-1;};
+   P.push(x,terHs(x,z),z); N.push(0,1,0); return P.length/3-1;};
  const tri=(a,b,c)=>{const ax=P[3*a],az=P[3*a+2],bx=P[3*b],bz=P[3*b+2],cx=P[3*c],cz=P[3*c+2];
    const up=(bz-az)*(cx-ax)-(bx-ax)*(cz-az); if(Math.abs(up)<1e-12) return; if(up>0) I.push(a,b,c); else I.push(a,c,b);};
  // 穴の2本の鎖(x の小さい端から大きい端へ)。cA=北(z の小さい側)・cB=南
@@ -1847,7 +1863,11 @@ const groundMesh=(function(){
        if(V.length<3) continue; nHP++; const id=V.map(p=>pt(p[0],p[1]));
        for(const t of earTri(V)) tri(id[t[0]],id[t[1]],id[t[2]]); } }
  }
- TER.stat.ground={terrain:nT, runs:RUNS.length, hole:nH, holePieces:nHP, mono:mono, verts:P.length/3, tris:I.length/3};
+ if(SW){
+   for(let k=0;k<P.length;k+=3){const t=P[k]; P[k]=P[k+2]; P[k+2]=t; const u=N[k]; N[k]=N[k+2]; N[k+2]=u;}
+   for(let k=0;k<I.length;k+=3){const t=I[k+1]; I[k+1]=I[k+2]; I[k+2]=t;}
+ }
+ TER.stat.ground={terrain:nT, runs:RUNS.length, hole:nH, holePieces:nHP, mono:mono, swap:SW, verts:P.length/3, tris:I.length/3};
  }
  const g=new THREE.Mesh(facesGeo(P,N,I),MAT.ground);
  g.name='地表'; scene.add(g); return g;})();
@@ -4610,6 +4630,7 @@ if(PLB){
     if(i>=N)return false;
     const p=frame(s,off), rad=2.3*sc;
     if(!cityFree(s,off,rad,p.x,p.z,roadIn===undefined?0:rad+roadIn))return false;
+    if(GSR&&jrNear(p.x,p.z,rad+2.0))return false;    // JR 等の線路の上には植えない(品川版)
     if(!occFree(p.x,p.z,rad))return false;
     const ty=Math.min(terH(p.x,p.z),terH(p.x+0.3,p.z),terH(p.x-0.3,p.z),terH(p.x,p.z+0.3),terH(p.x,p.z-0.3));   // 根元(坂で浮かない)
     T.push([p.x,p.z,sc,c,s,ty]); i++;
@@ -4710,6 +4731,65 @@ if(PLB){
     set cols(a){for(const c of TREE_CH.values()) c.m.cols=[];},
     get count(){return CITY.trees.length;}
   };
+}
+
+/* ============ 8a. JR 等の線路(国土地理院。gsi_rail.js) ============
+   京急以外の鉄道(JR 山手線・京浜東北線・東海道線・横須賀線・新幹線ほか)の線路を、国土地理院の「軌道の中心線」から描く。
+   ・道床(砕石):幅 3.0m の帯(上面+両側の斜面)。地表(terH)に沿わせる
+   ・レール:狭軌(軌間 1.067m)。新幹線(標準軌)も区別できないので全部 1.067m で描く(推定)
+   ・無壁舎(ホームの上屋):地表+4.6m の薄い屋根(厚さ 0.3m)
+   ・線路の上の建物(駅の自由通路・駅ビル):下端を地表+6.8m(架線より上)に浮かせた人工地盤
+   描画の呼び出しを減らすため、種類ごとに1つの結合ジオメトリにする(頂点カラー) */
+const JR_GAUGE=1.067, JR_RAIL_OFF=(JR_GAUGE+0.065)/2;
+if(GSR){
+  const P=[],N=[],I=[],C=[], col=new THREE.Color();
+  const vtx=(x,y,z,nx,ny,nz,hex)=>{P.push(x,y,z);N.push(nx,ny,nz);setSrgb(col,hex);C.push(col.r,col.g,col.b);return P.length/3-1;};
+  // 折れ線 L に沿う帯。prof=[[横のずれ,高さ],…](左から右へ)。面の法線は隣の点から
+  const ribbon=(L,prof,hex)=>{
+    const S=[]; for(let i=0;i<L.length-1;i++){const A=L[i],B=L[i+1],n=Math.max(1,Math.ceil(Math.hypot(B[0]-A[0],B[1]-A[1])/4));
+      for(let k=0;k<n;k++) S.push([A[0]+(B[0]-A[0])*k/n, A[1]+(B[1]-A[1])*k/n]);}
+    S.push(L[L.length-1]); if(S.length<2) return;
+    let prev=null;
+    for(let i=0;i<S.length;i++){
+      const a=S[Math.max(0,i-1)], b=S[Math.min(S.length-1,i+1)], l=Math.hypot(b[0]-a[0],b[1]-a[1])||1, tx=(b[0]-a[0])/l, tz=(b[1]-a[1])/l;
+      const nx=-tz, nz=tx, g=terH(S[i][0],S[i][1]);
+      const row=prof.map(q=>[S[i][0]+nx*q[0], g+q[1], S[i][1]+nz*q[0]]);
+      const ids=[];
+      for(let k=0;k<row.length-1;k++){            // 区間ごとに頂点を分ける(角で陰が分かれる)
+        const p=row[k], q=row[k+1], dx=q[0]-p[0], dy=q[1]-p[1], dz=q[2]-p[2], w=Math.hypot(dx,dz)||1;
+        let fx=-dy*dx/w, fy=w, fz=-dy*dz/w; const fl=Math.hypot(fx,fy,fz)||1; fx/=fl; fy/=fl; fz/=fl;
+        ids.push([vtx(p[0],p[1],p[2],fx,fy,fz,hex), vtx(q[0],q[1],q[2],fx,fy,fz,hex)]);
+      }
+      if(prev) for(let k=0;k<ids.length;k++){const A=prev[k],B=ids[k];
+        // 上向きの巻き順にそろえる(裏から照らされると暗くなる)。A0→B0 と A0→A1 の外積の y で見る
+        const q=i=>[P[3*i],P[3*i+2]], a0=q(A[0]), b0=q(B[0]), a1=q(A[1]);
+        const up=(b0[1]-a0[1])*(a1[0]-a0[0])-(b0[0]-a0[0])*(a1[1]-a0[1]);
+        if(up>=0) I.push(A[0],B[0],A[1], A[1],B[0],B[1]); else I.push(A[0],A[1],B[0], A[1],B[1],B[0]);}
+      prev=ids;
+    }
+  };
+  for(const L of GSR.rails){
+    ribbon(L,[[-1.9,0.02],[-1.35,0.30],[1.35,0.30],[1.9,0.02]],0x8f8a82);                       // 道床
+    for(const sg of[-1,1]){ const o=sg*JR_RAIL_OFF;
+      ribbon(L,[[o-0.04,0.30],[o-0.035,0.46],[o+0.035,0.46],[o+0.04,0.30]],0x5b5650); }         // レール
+  }
+  // 平らな多角形の板(上面・下面・側面)。y0/y1=下端・上端
+  const slab=(R,y0,y1,top,side)=>{
+    const V=R.map(p=>[p[0],p[1]]), T=earTri(V);
+    for(const [yy,up] of [[y1,1],[y0,-1]]){const o=P.length/3;
+      for(const v of V) vtx(v[0],yy,v[1],0,up,0,up>0?top:side);
+      for(const t of T){const A=V[t[0]],B=V[t[1]],Cc=V[t[2]], cr=(B[1]-A[1])*(Cc[0]-A[0])-(B[0]-A[0])*(Cc[1]-A[1]);
+        if((cr>=0)===(up>0)) I.push(o+t[0],o+t[1],o+t[2]); else I.push(o+t[0],o+t[2],o+t[1]);}}
+    for(let k=0;k<V.length;k++){const a=V[k], b=V[(k+1)%V.length], l=Math.hypot(b[0]-a[0],b[1]-a[1])||1, nx=(b[1]-a[1])/l, nz=-(b[0]-a[0])/l;
+      const i0=vtx(a[0],y0,a[1],nx,0,nz,side), i1=vtx(b[0],y0,b[1],nx,0,nz,side), i2=vtx(b[0],y1,b[1],nx,0,nz,side), i3=vtx(a[0],y1,a[1],nx,0,nz,side);
+      I.push(i0,i1,i2,i0,i2,i3, i0,i2,i1,i0,i3,i2);}            // 両面(多角形の向きが揃わないことがある)
+  };
+  const gMin=R=>Math.min(...R.map(p=>terH(p[0],p[1])));
+  for(const R of GSR.roofs){ const g=gMin(R); slab(R,g+4.3,g+4.6,0x9aa0a6,0x7d848c); }            // ホームの上屋
+  for(const [R,h] of GSR.decks){ const g=gMin(R); slab(R,g+6.8,g+6.8+Math.max(3.2,h-6.8),0xd9dcdf,0xb7c3cc); }   // 線路上空の建物
+  const m=new THREE.Mesh(facesGeo(P,N,I,C),M(0xffffff,{vertexColors:true,side:THREE.DoubleSide}));
+  m.name='JR等の線路'; m.receiveShadow=true; scene.add(m);
+  STRUCT.push({tag:'JR等の線路', n:GSR.rails.length, roofs:GSR.roofs.length, decks:GSR.decks.length});
 }
 
 /* ============ 8b. 夜の灯り ============
