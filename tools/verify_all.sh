@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 全チェックポイントを通しで実行する。どれか失敗したら止まる。
-#   使い方: bash tools/verify_all.sh [keio_elevated_3d.html]
+#   使い方: bash tools/verify_all.sh [keikyu_shinagawa_3d.html]
 set -e
-HTML="${1:-keio_elevated_3d.html}"
+HTML="${1:-keikyu_shinagawa_3d.html}"
 cd "$(dirname "$0")/.."
 
 echo "[1/16] JS構文チェック ..."

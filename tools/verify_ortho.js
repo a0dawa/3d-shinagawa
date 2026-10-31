@@ -13,14 +13,14 @@
 //   ビューアの URL を壊すと NG になる)
 //
 //   依存(リポジトリ外。measure_load.js と同じ):--playwright <node_modules> --three <three.min.js>(環境変数 K8_PW / K8_THREE)
-//   使い方: node tools/verify_ortho.js [--html keio_elevated_3d.html]
+//   使い方: node tools/verify_ortho.js [--html keikyu_shinagawa_3d.html]
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
 const A = process.argv.slice(2);
 const opt = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1]; };
-const HTML = opt('html', 'keio_elevated_3d.html');
+const HTML = opt('html', 'keikyu_shinagawa_3d.html');
 const PW = opt('playwright', process.env.K8_PW || '');
 const THREEJS = opt('three', process.env.K8_THREE || '');
 

@@ -2,7 +2,7 @@
 """線路の帯にかかる3次メッシュ(JIS X 0410 の 1km 区画。PLATEAU の CityGML はこの単位のファイル)を数える。
 新しい線区で PLATEAU のどのファイルを取り出せばよいかを決めるのに使う(HANDOVER_NEW_LINE.md の5章)。
 
-  python3 -I tools/plateau_meshes.py --html keio_elevated_3d.html [--band 650] [--ext 600]
+  python3 -I tools/plateau_meshes.py --html keikyu_shinagawa_3d.html [--band 650] [--ext 600]
   python3 -I tools/plateau_meshes.py --pts 35.6737,139.6673 35.6620,139.5851 [--band 650]
 
   ・駅の中心(HTML の RAW.sta の東端と西端の中点。plateau_import.py と同じ読み方)を結ぶ折れ線を、両端で ext [m]
@@ -76,7 +76,7 @@ def main():
     ap.add_argument('--band', type=float, default=650.0, help='折れ線の両側の幅[m]')
     ap.add_argument('--ext', type=float, default=600.0, help='両端で折れ線を延ばす長さ[m]')
     a = ap.parse_args()
-    pts = [tuple(float(t) for t in p.split(',')) for p in a.pts] if a.pts else html_stations(a.html or 'keio_elevated_3d.html')
+    pts = [tuple(float(t) for t in p.split(',')) for p in a.pts] if a.pts else html_stations(a.html or 'keikyu_shinagawa_3d.html')
     m = meshes(pts, a.band, a.ext)
     print('3次メッシュ %d枚:' % len(m), ' '.join(m))
     print('2次メッシュ(土地利用 luse):', ' '.join(sorted(set(c[:6] for c in m))))

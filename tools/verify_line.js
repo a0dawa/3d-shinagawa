@@ -7,8 +7,8 @@
 //   インテグレート架線としての形(き電ちょう架線2条+トロリ線・偏位の交互・ハンガの間隔・
 //   パンタに当たらない支持物・柱の建築限界)を、登録簿と実際に描いた電線の頂点で見る。
 //
-//   使い方: node tools/verify_line.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_line.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'deckHalf:deckHalf,outerOff:outerOff,platOuter:platOuter,mainOff:mainOff,' +
   'poleStep:poleStep,STA:STA,DOM:DOM,DECK_END:DECK_END,frame:frame,RAIL_TOP:RAIL_TOP,' +

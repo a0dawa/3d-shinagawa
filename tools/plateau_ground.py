@@ -3,7 +3,7 @@
 地形(plateau_dem.js)の検証の基準(tools/verify_city.js の「地形」)に使う。建物の地盤の高さは地形モデル(dem)とは別の
 データ(bldg)なので、ビューアの地形の起伏が実際の建物の地盤の高さの差と合うかを独立に確かめられる。
 
-  python3 -I tools/plateau_ground.py --html keio_elevated_3d.html --bldg plateau_bldg.js \
+  python3 -I tools/plateau_ground.py --html keikyu_shinagawa_3d.html --bldg plateau_bldg.js \
       --out reference/plateau/bldg_ground.json <建築物の CityGML(bldg/*.gml)…>
 
   ・建物の並びは plateau_import.py と同じ読み方(同じ引数)で作り直し、plateau_bldg.js の PLT1 とバイト単位で一致することを
@@ -26,7 +26,7 @@ import plateau_import as PI   # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--html', default='keio_elevated_3d.html')
+    ap.add_argument('--html', default='keikyu_shinagawa_3d.html')
     ap.add_argument('--bldg', default='plateau_bldg.js', help='一致を確かめる建物のデータ')
     ap.add_argument('--margin', type=float, default=600.0)
     ap.add_argument('--min-area', type=float, default=25.0)

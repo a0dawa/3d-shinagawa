@@ -7,13 +7,13 @@
 //     前面 480×630・150px/m(中心列=y0、画像の右が v4 の +y=向かって右、z=4.2−(行+0.5)/150)
 //   基準は REF(公表の説明と reference/keio9000/measured_9000.md の推定値)。HTML からは読まない。
 //   依存:--playwright <node_modules> --three <three.min.js>(環境変数 K8_PW / K8_THREE でも可)
-//   使い方: node tools/verify_k9render.js [--html keio_elevated_3d.html] [--out 出力フォルダ]
+//   使い方: node tools/verify_k9render.js [--html keikyu_shinagawa_3d.html] [--out 出力フォルダ]
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const A = process.argv.slice(2);
 const opt = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1]; };
-const HTML = opt('html', 'keio_elevated_3d.html');
+const HTML = opt('html', 'keikyu_shinagawa_3d.html');
 const PW = opt('playwright', process.env.K8_PW || '');
 const THREEJS = opt('three', process.env.K8_THREE || '');
 const OUT = path.resolve(opt('out', path.join(require('os').tmpdir(), 'k9render')));

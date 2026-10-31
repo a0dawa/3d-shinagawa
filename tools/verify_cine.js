@@ -15,8 +15,8 @@
 //     持つ。HTML の TIME/SEASON 表を読み込んで突き合わせると、表を間違えたときに
 //     検証も一緒に間違うので読まない。
 //
-//   使い方: node tools/verify_cine.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_cine.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'CINE:CINE, cineOn:()=>cineOn, stepWorld:stepWorld,' +
   'SUN_N:()=>SUN_N, SUN_RT:()=>SUN_RT, SUN_UP:()=>SUN_UP, SUN_F:()=>SUN_F,' +

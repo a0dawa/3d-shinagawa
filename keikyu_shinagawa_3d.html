@@ -572,7 +572,7 @@ const RAW={
  //   → 品川は国道15号の路面(TP約6m)とほぼ同じ高さの地平ホーム(TP6.3)→ 32‰で下り、掘割を経てトンネル(泉岳寺方)へ
  prof:[
   [-646,9.0],
-  [293.6,9.0],
+  [263.6,9.0],             // 上り勾配の始まり(新馬場方の道路の桁下 4.7m を確保できる位置。2026-10-30 に 30m 南へ)
   [563.6,14.4],
   [890.6,14.4],
   [1207.6,3.3],
@@ -1957,6 +1957,22 @@ if(PLL){
      if(on){ if(a===null) a=s; }
      else if(a!==null){ if(s-a>=3){ROAD_SKIP.push([(a+s-1)/2,(s-a)/2+4]); ROAD_XING.push([a,s-1]);} a=null; }
    }}
+  /* 品川版:斜めに横切る道路・細い道路は「中心と桁の両端の3点が同時に道路の上」にならず、上の判定から漏れて道路の上に柱が
+     立った(⑬ verify_geom の「道路の上の柱」)。桁の幅の5点のどれかが、線路を横切る向き(道路の面の主軸と線路の角度が
+     45°以上)の道路の上にある s の範囲も、柱を立てない所に足す。線路に沿う道路(別線の用地)は対象にしない */
+  { const ang=R=>{ if(R.th===undefined){ let mx=0,mz=0; for(const p of R.P){mx+=p[0];mz+=p[1];} mx/=R.P.length; mz/=R.P.length;
+        let a=0,b=0,c=0; for(const p of R.P){const dx=p[0]-mx,dz=p[1]-mz; a+=dx*dx; b+=dx*dz; c+=dz*dz;} R.th=0.5*Math.atan2(2*b,a-c); }
+      return R.th; };
+    const cross=(s,o)=>{ const f=frame(s,o), f1=frame(s+1,o), tl=Math.atan2(f1.z-f.z,f1.x-f.x);
+      const l=PLR_GRID.get(Math.floor(f.x/PLR_CELL)+','+Math.floor(f.z/PLR_CELL)); if(!l) return false;
+      return l.some(R=>{ if(!(f.x>R.bb[0]&&f.x<R.bb[1]&&f.z>R.bb[2]&&f.z<R.bb[3])||polyDist(R.P,f.x,f.z)>=0) return false;
+        let d=Math.abs(((ang(R)-tl)%Math.PI+Math.PI)%Math.PI); if(d>Math.PI/2) d=Math.PI-d; return d>=Math.PI/4; }); };
+    let a=null;
+    for(let s=Math.floor(Math.max(DOM.x0,PS0));s<=DECK_END+1;s++){
+      const dh=deckHalf(s), on=[0,-dh,dh,-dh/2,dh/2].some(o=>cross(s,o));
+      if(on){ if(a===null) a=s; }
+      else if(a!==null){ ROAD_SKIP.push([(a+s-1)/2,(s-a)/2+4]); a=null; }
+    }}
   /* 仙川の掘割を渡る道路橋:道路の橋梁(sec 2)のうち掘割の中ほど(中心と南北の幅の 1/3〜2/3)を覆うもの(PLATEAU の
      橋梁の面は擁壁の手前で終わることがある)。掘割の幅を7本の線で横切って道路の面に入る s の範囲を測り、東西の縁を
      覆う線の端を通る直線(最小二乗)を全部の線の外へずらして決め、床版は擁壁から擁壁まで渡す(5c章) */

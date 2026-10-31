@@ -4,8 +4,8 @@
 //   見た目では気づきにくく、AIは描画を見られない。そこで運転ロジックをそのまま
 //   時間発展させ、どこにどれだけ停まったかを数値で確かめる。
 //
-//   使い方: node tools/verify_run.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_run.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'STA:STA,platRange:platRange,stopPosOf:stopPosOf,nextStopFor:nextStopFor,' +
   'driveTrain:driveTrain,DRIVE:DRIVE,DWELL_OF:DWELL_OF,CAR_HALF:CAR_HALF,K8:K8,' +

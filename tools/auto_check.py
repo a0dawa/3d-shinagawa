@@ -14,12 +14,12 @@
     (RailFile.jp 8714編成の山側・海側の編成写真を 60px/m で測った値と前面写真の実測)
     ※旧 [B] 写真実測・[D] 前面仕様書による車体は v4 に置き換えた。
 
-  使い方: python3 tools/auto_check.py [keio_elevated_3d.html]
+  使い方: python3 tools/auto_check.py [keikyu_shinagawa_3d.html]
 """
 import re
 import sys
 
-HTML = sys.argv[1] if len(sys.argv) > 1 else 'keio_elevated_3d.html'
+HTML = sys.argv[1] if len(sys.argv) > 1 else 'keikyu_shinagawa_3d.html'
 
 # v4 の実測値[m](検証側が独立して持つ。HTML から読まない)
 REF_V4 = {

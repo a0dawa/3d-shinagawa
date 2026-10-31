@@ -7,8 +7,8 @@
 //     行先表示器は中央扉の上・車号は向かって右の窓の上・前照灯と尾灯は前面の下部
 //   塗り分け(帯・窓・前面の黒)はシェーダなので頂点には現れない。それは⑮で見る。
 //   基準値はすべて下の REF で持つ(reference/keio9000/measured_9000.md)。HTML から読まない。
-//   使い方: node tools/verify_car9.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_car9.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'K9GEO:K9GEO,K9_WIN:K9_WIN,K9_FORMATIONS:K9_FORMATIONS,trains:trains,WIRE_TRO:WIRE_TRO,' +
   'makeCar:makeCar,M_PASS:M_PASS,M_PASS_OFF:M_PASS_OFF');

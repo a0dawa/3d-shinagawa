@@ -9,8 +9,8 @@
 //     両方で測る。建築限界の寸法は検証側が独立に持つ(HTMLからは読まない)。
 //   ・公表デザインの要点も検証側が持つ。出典は京王電鉄 2019.5.30 の発表の「イメージパース」
 //     (利用者提供の画像。寸法はパースの人物 約1.7m と比べて読んだ)と「デザインのポイント」の文。
-//   使い方: node tools/verify_station.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_station.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'STA:STA,STG:STG,STRUCT:STRUCT,TRACKS:TRACKS,railY:railY,frame:frame,PLATS:PLATS,' +
   'STAIRS:(typeof STAIRS!=="undefined"?STAIRS:[]),SIGNS:(typeof SIGNS!=="undefined"?SIGNS:[]),' +
@@ -19,7 +19,7 @@ const X = require('./stub_three')(path,
   'PSD:PSD,K8:K8,DECK_END:DECK_END,LODS:LODS,POLE_S:POLE_S,WIRE_CAT:WIRE_CAT,' +
   'GUIDES:GUIDES,depList:depList,pidsSetTime:pidsSetTime,' +
   'PEOPLE:(typeof PEOPLE!=="undefined"?PEOPLE:[]),scene:scene,STD:STD,POLES:(typeof POLES!=="undefined"?POLES:[]),' +
-  'TURNOUTS:TURNOUTS,prjXY:prjXY,INO:INO,INO_PLAT:INO_PLAT,XR:XR,RAW:RAW,LAT0:LAT0,LON0:LON0,MLAT:MLAT,MLON:MLON,VIA_COLS:VIA_COLS,lodStruct:lodStruct,camera:camera,' +
+  'TURNOUTS:TURNOUTS,prjXY:prjXY,INO:(typeof INO!=="undefined"?INO:null),INO_PLAT:(typeof INO_PLAT!=="undefined"?INO_PLAT:null),XR:(typeof XR!=="undefined"?XR:null),RAW:RAW,LAT0:LAT0,LON0:LON0,MLAT:MLAT,MLON:MLON,VIA_COLS:VIA_COLS,lodStruct:lodStruct,camera:camera,' +
   'trains:trains,stepWorld:stepWorld,FLOW:FLOW,stopPosOf:stopPosOf,CAR_HALF:CAR_HALF,placeTrain:placeTrain,trainPSD:trainPSD');
 
 /* ---- 検証側が独立に持つ寸法 -------------------------------------------- */

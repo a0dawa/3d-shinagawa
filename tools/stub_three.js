@@ -5,7 +5,7 @@
 //   verify_car.js(ジオメトリ検証)と verify_run.js(運転検証)が共用する。
 //
 //   使い方:
-//     const X = require('./stub_three')('keio_elevated_3d.html', 'K8:K8,STA:STA');
+//     const X = require('./stub_three')('keikyu_shinagawa_3d.html', 'K8:K8,STA:STA');
 //     // X.K8 / X.STA が取り出せる
 const fs = require('fs');
 const nodePath = require('path');

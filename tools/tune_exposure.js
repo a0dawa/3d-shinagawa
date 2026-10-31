@@ -7,7 +7,7 @@
 //
 //   ・変更前に白飛びしている面は、その表示値自体が本来の色ではないので
 //     合わせる対象から外す(合わせると白飛びを再現してしまう)
-//   ・結果は keio_elevated_3d.html の TONE_EXPO に手で反映する
+//   ・結果は keikyu_shinagawa_3d.html の TONE_EXPO に手で反映する
 //
 //   使い方: node tools/tune_exposure.js
 //   ※ 光源の設定・代表面の色を変えたら、この表も合わせて更新すること

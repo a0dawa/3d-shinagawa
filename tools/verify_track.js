@@ -6,8 +6,8 @@
 //   ガードレール・転てつ機・分岐まくらぎ)が揃い、寸法が合う」「道床どうしが重ならない
 //   (重なると面がちらつく)」「行き止まりに車止め」を、登録簿と実際の頂点・インスタンスで測る。
 //   基準値(軌間・レールの高さ・まくらぎの間隔・分岐器の番数など)は検証側が持つ(HTMLからは読まない)。
-//   使い方: node tools/verify_track.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_track.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'TRACKS:TRACKS,TURNOUTS:TURNOUTS,FROGS:FROGS,RAILS:RAILS,BUFFERS:BUFFERS,BEDS:BEDS,STRUCT:STRUCT,' +
   'scene:scene,MAT:MAT,FAST1_GEO:FAST1_GEO,FAST2_GEO:FAST2_GEO,railY:railY,frame:frame,RAIL_TOP:RAIL_TOP,DOM:DOM,' +
@@ -15,7 +15,7 @@ const X = require('./stub_three')(path,
 
 /* ---- 検証側が独立に持つ寸法 -------------------------------------------- */
 const REF = {
-  GAUGE: 1.372,            // 軌間[m](京王線=馬車軌間)。レール頭部の内側の面の間
+  GAUGE: 1.435,            // 軌間[m](京急線=標準軌)。レール頭部の内側の面の間
   HEAD: 0.072,             // レール頭部の幅[m]
   RAIL_H: 0.153,           // 50kgN レールの高さ[m]
   SEAT: [0.005, 0.02],     // レールの底とまくらぎの上面の間(タイプレート・軌道パッド)[m]
@@ -49,8 +49,19 @@ function toSO(x, z) {
   }
   if (!best) return null;
   const a = best[3];
-  return { s: best[0] + (x - best[1]) * Math.cos(a) + (z - best[2]) * Math.sin(a),
-           off: -(x - best[1]) * Math.sin(a) + (z - best[2]) * Math.cos(a) };
+  let s = best[0] + (x - best[1]) * Math.cos(a) + (z - best[2]) * Math.sin(a),
+      off = -(x - best[1]) * Math.sin(a) + (z - best[2]) * Math.cos(a);
+  /* 品川版:線形の曲がりが強く、上の1次の戻しでは off が約1cm ずれる(締結装置の照合の許容 1cm を超える)。
+     frame(s,off) が (x,z) に一致するよう、ニュートン法で s と off を直す(ヤコビ行列は差分) */
+  for (let it = 0; it < 4; it++) {
+    const f = X.frame(s, off), rx = x - f.x, rz = z - f.z;
+    if (rx * rx + rz * rz < 1e-12) break;
+    const h = 0.01, fs = X.frame(s + h, off), fo = X.frame(s, off + h);
+    const a11 = (fs.x - f.x) / h, a21 = (fs.z - f.z) / h, a12 = (fo.x - f.x) / h, a22 = (fo.z - f.z) / h, det = a11 * a22 - a12 * a21;
+    if (Math.abs(det) < 1e-12) break;
+    s += (rx * a22 - a12 * rz) / det; off += (a11 * rz - a21 * rx) / det;
+  }
+  return { s: s, off: off };
 }
 // 高架の区画(5章)の中の Mesh を集める
 const meshes = [];

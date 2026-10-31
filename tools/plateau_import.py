@@ -2,7 +2,7 @@
 """PLATEAU(国土交通省 3D都市モデル)の建築物 CityGML から、沿線の建物の
 「平面形(足跡)+高さ」を取り出し、ビューアに埋め込める小さな2進データにする(試作)。
 
-  python3 -I tools/plateau_import.py --html keio_elevated_3d.html --out reference/plateau/bldg.bin \
+  python3 -I tools/plateau_import.py --html keikyu_shinagawa_3d.html --out reference/plateau/bldg.bin \
       <建築物の CityGML(bldg/*.gml)> [...]
 
   ・入力は G空間情報センターの「3D都市モデル(Project PLATEAU)」の CityGML(bldg)。
@@ -260,7 +260,7 @@ def decode(b):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--html', default='keio_elevated_3d.html')
+    ap.add_argument('--html', default='keikyu_shinagawa_3d.html')
     ap.add_argument('--out', required=True, help='2進(.bin)か、ビューアが読む JS(.js:globalThis.PLATEAU_BLDG に base64 で入れる)')
     ap.add_argument('--source', default='国土交通省 3D都市モデル(Project PLATEAU)', help='出典の表示')
     ap.add_argument('--margin', type=float, default=600.0, help='駅の並びの外側に取る幅[m]')

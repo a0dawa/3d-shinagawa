@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """PLATEAU の LOD2 の建物の写真テクスチャ(航空写真から作った壁と屋根の画像)を、ビューアが読む plateau_tex.js にする。
 
-  python3 -I tools/plateau_tex.py --html keio_elevated_3d.html --bldg plateau_bldg.js \
+  python3 -I tools/plateau_tex.py --html keikyu_shinagawa_3d.html --bldg plateau_bldg.js \
       --images <画像を置いたフォルダ> --out plateau_tex.js <建築物の CityGML(bldg/*.gml)…>
 
   ・建物の並びと LOD2 の面は plateau_import.py と同じ読み方(同じ引数)で作り直し、plateau_bldg.js の PLT1・PL2A と
@@ -356,7 +356,7 @@ def encode_ptx(blds, keep, uv, col):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--html', default='keio_elevated_3d.html')
+    ap.add_argument('--html', default='keikyu_shinagawa_3d.html')
     ap.add_argument('--bldg', default='plateau_bldg.js', help='一致を確かめる建物のデータ')
     ap.add_argument('--margin', type=float, default=600.0)
     ap.add_argument('--min-area', type=float, default=25.0)

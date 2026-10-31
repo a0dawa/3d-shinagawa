@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """PLATEAU の地形モデル(dem:TINRelief の三角形の網。点は約2.6m おき)を、線路の帯の格子の標高にして plateau_dem.js にする。
 
-  python3 -I tools/plateau_dem.py --html keio_elevated_3d.html --out plateau_dem.js --dx 10 \
+  python3 -I tools/plateau_dem.py --html keikyu_shinagawa_3d.html --out plateau_dem.js --dx 10 \
       --source '国土交通省 3D都市モデル(Project PLATEAU)2025年度 …' --zip <zip の URL> [--zip …] [dem の GML …]
 
   ・--zip は G空間情報センターの区市ごとの CityGML の zip(plateau_tex.py と同じ)。udx/dem/ の GML を範囲指定で取り出し、
@@ -93,7 +93,7 @@ def feed(chunks, grid, proj, want, stat):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--html', default='keio_elevated_3d.html')
+    ap.add_argument('--html', default='keikyu_shinagawa_3d.html')
     ap.add_argument('--out', default='plateau_dem.js')
     ap.add_argument('--source', default='国土交通省 3D都市モデル(Project PLATEAU)')
     ap.add_argument('--dx', type=float, default=10.0, help='格子の間隔[m]')

@@ -38,7 +38,7 @@ function opt(name, def) {
   return (v === undefined || v.startsWith('--')) ? true : v;
 }
 const OPT = {
-  html: String(opt('html', 'keio_elevated_3d.html')),
+  html: String(opt('html', 'keikyu_shinagawa_3d.html')),
   out: String(opt('out', 'capture')),
   w: +opt('w', 480), h: +opt('h', 270), fps: +opt('fps', 12),
   // 超過標本化。描いてから出力の大きさへ縮めると、細い線(道路の縁・架線・

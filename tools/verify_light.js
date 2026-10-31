@@ -10,8 +10,8 @@
 //
 //   ※ 期待値(向き・テクセルの上限・確保すべき高さ)は検証側が独立に持つ。
 //
-//   使い方: node tools/verify_light.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_light.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'sun:sun,sunFollow:sunFollow,shadowRadius:shadowRadius,' +
   'SUN_V:SUN_V,SUN_N:SUN_N,SUN_F:SUN_F,SUN_RT:SUN_RT,SUN_UP:SUN_UP,' +

@@ -11,8 +11,8 @@
 //   塗り分け(帯・窓・扉・前面の黒)はシェーダなので頂点には現れない。それは⑩で見る。
 //
 //   基準値はすべて下の REF(実測表から写した値)で持つ。HTML から読まない。
-//   使い方: node tools/verify_car.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_car.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'K8:K8,K8GEO:K8GEO,K8_WIN:K8_WIN,K8_FORMATIONS:K8_FORMATIONS,K9_FORMATIONS:K9_FORMATIONS,makeCar:makeCar,' +
   'setCarDoors:setCarDoors,k8nose:k8nose,trains:trains,parkedCars:parkedCars,' +

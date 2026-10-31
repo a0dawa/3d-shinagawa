@@ -112,7 +112,10 @@ def main():
         u = u / (np.hypot(*u) + 1e-9)
         dist = float(np.hypot(*(CEN[i] - np.array(p))))
         par = abs(float(u @ t)) > math.cos(math.radians(25))
-        return (dist < 13.0 and par) or (1705 <= CS[i] <= 2150 and dist < 16.0)
+        dv0 = np.array(p) - CEN[i]
+        west = float(u[0] * dv0[1] - u[1] * dv0[0]) > 0                # 中心線(北→南)の右手=西
+        # 現況の品川駅(北から 1150〜1450m)の西側の線路も京急(西隣は国道15号で JR は無い)。18m まで除く(2026-10-30)
+        return (dist < 13.0 and par) or (1705 <= CS[i] <= 2150 and dist < 16.0) or (1150 <= CS[i] <= 1450 and dist < 18.0 and west)
 
     def lines_of(f):
         return [f['c']] if f['t'] == 'LineString' else (f['c'] if f['t'] == 'MultiLineString' else [])

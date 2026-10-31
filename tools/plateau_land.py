@@ -2,7 +2,7 @@
 """PLATEAU(国土交通省 3D都市モデル)の道路(tran)・土地利用(luse)・水部(wtr)の CityGML から、
 沿線の「地表に敷く面」を取り出し、ビューアが読む別ファイル plateau_land.js にする。
 
-  python3 -I tools/plateau_land.py --html keio_elevated_3d.html --out plateau_land.js \
+  python3 -I tools/plateau_land.py --html keikyu_shinagawa_3d.html --out plateau_land.js \
       --tran <道路の CityGML(tran/*.gml)>... [--luse <土地利用(luse/*.gml)>...] [--wtr <水部(wtr/*.gml)>...]
 
   ・道路 …… tran:Road の lod1MultiSurface(道路区域の平面形。高さは0)。種別は Road_function と名称から:
@@ -181,7 +181,7 @@ def struct_pack(fmt, *v):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--html', default='keio_elevated_3d.html')
+    ap.add_argument('--html', default='keikyu_shinagawa_3d.html')
     ap.add_argument('--out', required=True)
     ap.add_argument('--source', default='国土交通省 3D都市モデル(Project PLATEAU)')
     ap.add_argument('--band', type=float, default=560.0, help='駅を結ぶ折れ線からこの距離[m]より遠い面は捨てる')

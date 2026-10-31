@@ -7,8 +7,8 @@
 //   ※ 期待値(道路の幅・鉄道の建築限界・最小離隔)は検証側が独立に持つ。
 //     モデルの KEEP 表をそのまま読むと、表を緩めれば検査も緩む循環になる。
 //
-//   使い方: node tools/verify_city.js [keio_elevated_3d.html]
-const path = process.argv[2] || 'keio_elevated_3d.html';
+//   使い方: node tools/verify_city.js [keikyu_shinagawa_3d.html]
+const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'bldWinAt:(typeof bldWinAt!=="undefined"?bldWinAt:null),BLD_WIN_SRC:(typeof bldWinPatch!=="undefined"?bldWinPatch.toString():""),CITY:CITY,deckHalf:deckHalf,cutHalf:cutHalf,DOM:DOM,INO:INO,SETA:SETA,XR:XR,K8:K8,' +
   'KAN7_X:KAN7_X,NAKANO_X:NAKANO_X,HOSHA23_X:HOSHA23_X,KYU_INOKA_X:KYU_INOKA_X,H154_X:H154_X,H128_X:H128_X,' +
