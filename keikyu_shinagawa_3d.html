@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>京王線 連続立体交差事業(笹塚〜仙川) 高架化後 3Dビューア</title>
+<title>京急本線 泉岳寺〜新馬場間 連続立体交差事業(品川駅付近 地平化)3Dビューア</title>
 <style>
   :root{
     --ink:#1c2733; --panel:rgba(252,253,254,.94); --line:#c7ced6;
@@ -141,7 +141,7 @@
 </style>
 </head>
 <body>
-<canvas id="c" aria-label="京王線高架化後の3Dモデル"></canvas>
+<canvas id="c" aria-label="京急品川駅付近 地平化後の3Dモデル"></canvas>
 <div id="rot">
   <div class="ico">📱</div>
   <div><b>横画面にしてください</b><br>この3Dビューアは横向きでの表示に最適化されています。</div>
@@ -171,7 +171,7 @@
   <div class="v"><span id="spdVal">0</span><i>km/h</i><b id="spdKm">—</b></div>
   <div class="nxt"><b id="nxtName">—</b><span id="nxtDist">—</span></div>
   <div class="nxt"><b>種別</b><span id="rideKindInfo">—</span></div>
-  <div class="nxt"><b>ATC</b><span id="atcInfo">—</span></div>
+  <div class="nxt"><b>保安</b><span id="atcInfo">—</span></div>
   <div class="ctl">
     <button id="btnUp" aria-label="制動側へ">▲<span>制動</span></button>
     <button id="btnDn" aria-label="力行側へ">▼<span>力行</span></button>
@@ -188,7 +188,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="plateau_bldg.js"></script><!-- 沿線の建物(PLATEAU 形式。品川版は国土地理院データから tools/gsi_city.py が作る) -->
 <script src="plateau_land.js"></script><!-- 沿線の道路・水面(同上) -->
-<script src="plateau_tex.js"></script><!-- 駅の周りの LOD2 の建物の写真(PLATEAU)。品川版は無し=色で描く -->
+<!-- plateau_tex.js(建物の写真。京王版は PLATEAU の LOD2)は品川版には無い=建物は色で描く -->
 <script src="plateau_dem.js"></script><!-- 沿線の地形(同上。国土地理院 標高タイル) -->
 <script src="gsi_rail.js"></script><!-- 京急以外の鉄道(JR 等)の線路・ホームの上屋・線路上空の建物(国土地理院) -->
 <script>
@@ -196,44 +196,44 @@
 if(!window.THREE){document.body.insertAdjacentHTML('beforeend','<div class="panel" style="top:50%;left:50%;transform:translate(-50%,-50%);padding:20px">3Dライブラリを読み込めませんでした。通信環境をご確認ください。</div>');throw new Error('three missing');}
 
 /* ============================================================================
-   京王線 連続立体交差事業(笹塚〜仙川)高架化後 3Dビューア ── 保守ガイド
+   京急本線 泉岳寺〜新馬場間 連続立体交差事業(品川駅付近 地平化)3Dビューア ── 保守ガイド
+   京王線(笹塚〜仙川)の3Dビューア(3d-keio の最新版)のエンジンを複製し、線区に依存する所を品川向けに改造した。
    ----------------------------------------------------------------------------
    ■ ファイル構成(この見出しコメントで検索できます)
-     1. 与件データ        : 駅STA/踏切XINGS(実名25)/交差道路/8工区KOUKU
-     2. 縦断・断面・平面線形: railY(縦断) mainOff(本線の振り) deckHalf(桁半幅)
-                              GEO→GP→CT(実座標スプライン) frame(s,off) nearestS
+     1. 与件データ        : RAW(駅・現況中心線・別線の振り・平滑化・縦断・旧踏切・地物)
+     2. 平面線形          : 現況中心線+振り+平滑化 → CT(10m 格子)→ frame(s,off)・prjXY
+    2b. 断面・縦断        : railY(縦断)mainOff deckHalf・掘割 cutHalf・柱を立てない所 ROAD_SKIP/JR_SKIP
      3. シーン基盤        : renderer/材質MAT/strip・box・cyl
     3b. 結合ジオメトリ    : MG(材質ごとに結合・頂点カラー・掃引)/LOD(lodStruct)/登録簿STRUCT
-     4. 地表・道路・施設  : 幹線/踏切道スタブ/側道/玉川上水/給水所/変電所/駅前広場
-     5. 高架橋            : RCラーメン高架橋(床版・高欄・縦梁・柱と横梁・継目)。240mの区画 VIA_CH
-     6. 線路の登録        : layTrack(本線・副本線・留置線・渡り線)/trimTracks/井の頭線・世田谷線
-    6a. 軌道              : 道床・まくらぎ・締結装置・レール・分岐器(TURNOUTS/FROGS)・車止め
-    6b. 架線              : インテグレート架線(鋼管柱・Vトラスビーム・可動ブラケット・電線 CHAINS/SUPS)
-     7. 駅                : ホーム・大屋根/上屋・柱・階段とEV・駅名標・外装(公表デザイン FAC)・高架下駅舎
-     8. 街並み            : 街区整列の建物/樹木(幹+樹冠)
-     9. 列車              : テクスチャ車体+パンタ(走行6本・滞泊編成)
-    10. カメラ・モード    : オービット/運転モードrideOn(ワンハンドルマスコン)/列車追尾chaseOn
-    11. 縦断図ナビ        : SVG(駅クリック・踏切目盛・現在位置マーカー)
+     4. 地表・道路・水面  : 国土地理院の道路・水面(plateau_land.js)・地形(plateau_dem.js。絶対の標高)
+     5. 高架橋            : RCラーメン高架橋・擁壁・掘割(5c)。240mの区画 VIA_CH
+     6. 線路の登録        : layTrack(本線・品川の副本線・両渡り)/trimTracks
+    6a. 軌道              : 道床・まくらぎ・締結装置・レール(標準軌)・分岐器(TURNOUTS/FROGS)
+    6b. 架線              : インテグレート架線(鋼管柱・Vトラスビーム・可動ブラケット・電線)
+     7. 駅                : ホーム・大屋根(北品川)/上屋(品川・新馬場)・橋上駅舎(品川)・階段とEV・駅名標・高架下駅舎
+     8. 街並み            : 国土地理院の建物(plateau_bldg.js)・樹木/8a. JR 等の線路(gsi_rail.js)
+     9. 列車              : 9b. 京急2100形(K21。9000系の作りを流用)/自動運転(快特・曲線の制限速度 VLIM)
+    10. カメラ・モード    : オービット/運転モード(ワンハンドルマスコン・保安ブレーキ)/列車追尾
+    11. 縦断図ナビ        : SVG(駅クリック・旧踏切の目盛・現在位置)
     12. UI・メインループ  : ボタン類/resize/loop
 
    ■ 座標系(最重要)
-     ・s   : 営業距離[m](笹塚=0。新宿起点kmはヘルパ X(km) で変換)
-     ・off : 線路直角方向[m](+=北側/-=南側)
-     ・ワールド: 地理準拠 → X=東(+)西(-)/Z=南(+)北(-)/Y=高さ[m]
-       真上から見ると「北が上・新宿方(笹塚)が右」= 公式平面図と同じ向き
-     ・全構造物は frame(s,off) 経由で配置(直接ワールド座標を使うのは地表面のみ)
+     ・s   : 線路に沿う距離[m](新馬場の中心=0。泉岳寺方=+、横浜方=−)。営業キロ(泉岳寺起点)は KM(s)
+     ・off : 線路直角方向[m](+= s の増す向きの右手=おおむね東)
+     ・ワールド: X=東/Z=南/Y=標高 TP−3.0m(Y_TP)。真上から見て北が上
+     ・+s へ走る列車(エンジンの「下り」)は京急の上り(泉岳寺方面)。左側通行で −off 側の線を走る
+     ・全構造物は frame(s,off) 経由で配置(地表・道路・建物・JR 線は国土地理院の絶対座標)
 
-   ■ 主な調整パラメータ
-     ・線形     : GEO(各駅の緯度経度)を直せば全体が自動追従
-     ・断面/高さ: RAIL_H・DECK_DROP・GIRDER・BUMPS/軌道 TRK・RAIL_PF/架線 CAT・WIRE_*・POLE_TOP
-     ・踏切     : XINGS=[名称, s位置]
-     ・配色     : MAT(構造物)/7章 FAC(駅の外装)・頂点カラー(結合ジオメトリ)/car_spec由来の色(車両)
+   ■ 主な調整パラメータ(推定値の一覧は CLAUDE.md)
+     ・線形     : RAW.shift(別線の振り)・RAW.smooth(平滑化)。RAW.line(現況線)は触らない
+     ・縦断     : RAW.prof・RAW.vc。区間の種類(高架・擁壁・掘割)はレール面の高さで決まる
+     ・車両     : K21(2100形の諸元)・K21_FORMATIONS
+     ・運行     : TRAIN_DEF・DEP_PAT/DEP_STOP(発車標)・VLIM(制限速度の係数 3.7)
 
    ■ 保守メモ
-     ・編集後は <script> 内を抽出し node --check で構文確認を推奨
-     ・210m級の長物は必ず cbox(曲線追従ロフト)で生成。直方体Boxは曲線上で弦になる
-     ・CT.a は±π跨ぎをアンラップ済み。線形再生成時もこの処理を残すこと
-     ・操作系:ドラッグ=移動/Shift・Ctrl+ドラッグ=回転(2026-08変更)
+     ・編集後は bash tools/verify_all.sh(構文・スタブ実行・数値検証)
+     ・長物は曲線追従ロフト(cbox・loft)で生成。直方体Boxは曲線上で弦になる
+     ・操作系:ドラッグ=移動/Shift・Ctrl+ドラッグ=回転
    ========================================================================== */
 
 /* ============ 1. 与件データ(国土地理院データ由来の実座標・WGS84) ============ */
@@ -4544,7 +4544,7 @@ if(PLB){
   // 出典の表示(CC BY 4.0)
   try{
     const d=document.createElement('div');
-    d.textContent=(PLL?'建物・道路・土地利用':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工';   // CREDITS.txt と同じ表記
+    d.textContent=(PLL?'建物・道路・水面':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工';   // CREDITS.txt と同じ表記
     d.style.cssText='position:fixed;right:6px;bottom:4px;font:11px sans-serif;color:#334;background:rgba(255,255,255,.7);padding:1px 6px;border-radius:4px;z-index:5;pointer-events:none';
     document.body.appendChild(d);
   }catch(e){}
@@ -6676,7 +6676,8 @@ const trains=[];
    trains[0] は下りの各停、上りの最初(trains の並びで)は特急(検証と撮影が使う)。足す列車は後ろへ */
 /* 品川版:2100形8両の快特4本(品川だけに停まる。推定の模式)。dir>0=+s=泉岳寺方面(京急の上り)・dir<0=三崎口方面(下り)。
    編成は浦賀方から n 両目で決まる(k8CarSpec)。+s へ走る列車の先頭 j=0 は泉岳寺方=8号車 */
-const TRAIN_DEF=[[1,-150,'快特','2101F','泉岳寺'],[1,1000,'快特','2109F','青砥'],
+// +s へ走る列車は運転モードの開始位置(rideS の初め −200)と重ならないよう、その 800m 以上先から出す
+const TRAIN_DEF=[[1,600,'快特','2101F','泉岳寺'],[1,1700,'快特','2109F','青砥'],
                  [-1,1950,'快特','2117F','三崎口'],[-1,600,'快特','2125F','京急久里浜']];
 const TRAIN_CARS=8;
 TRAIN_DEF.forEach(function(a){
@@ -7957,10 +7958,9 @@ function atcRear(t){
   }
 }
 function atcLimit(s){
-  if(!trainsOn) return null;
   let lim=null;
-  for(const t of trains){
-    if(t.dir!==1) continue;                                  // 運転モードは下り線を走る
+  if(trainsOn) for(const t of trains){                       // 前の列車のパターン(列車走行 OFF のときは無し。曲線の制限は下で常に)
+    if(t.dir!==1) continue;                                  // 運転モードは +s(泉岳寺方面)へ走る
     if(t.x<DOM.x0||t.x>DOM.x1) continue;                     // エリア外(表示されていない)
     const rear=atcRear(t);                                   // 自列車の線に載っている最も後ろの点
     if(rear===null) continue;                                // 全体が別の線(特急:待避線の各停/各停:駅の本線の優等列車)
@@ -7969,6 +7969,11 @@ function atcLimit(s){
     const v=(d<=ATC.NEAR)?0:ATC.VFAR*Math.sqrt((d-ATC.NEAR)/(ATC.FAR-ATC.NEAR));
     if(lim===null||v<lim) lim=v;
   }
+  /* 品川版:曲線の制限速度(VLIM。自動運転と同じ表)も保安ブレーキの対象にする。自列車の全長(RIDE_LEN)の下の最も低い制限と、
+     前方の低い制限へ DRIVE.DEC で減速できる速度[km/h]。前の列車のパターンと小さい方 */
+  { const DEC=DRIVE.DEC/3.6, v=rideV/3.6, look=v*v/(2*DEC)+60; let c=Infinity;
+    for(let d=-RIDE_LEN;d<=look;d+=1){ const vl=VLIM.at(s+d); c=Math.min(c, d<=0?vl:Math.sqrt(vl*vl+2*DEC*d)); }
+    c*=3.6; if(isFinite(c)&&c<119.5&&(lim===null||c<lim)) lim=c; }
   return lim;
 }
 // 運転モードの状態を出し入れする(検証から走らせるための入り口)
@@ -8018,7 +8023,7 @@ function stepRide(dt){
   const aCmd=atcOn?aSet:aSet*accCurve(rideV,aSet);
   accEff += (aCmd-accEff)*Math.min(1, dt/NOTCH_LAG);
   rideV=clamp(rideV+accEff*dt,0,VMAX);
-  rideS+=(rideV/3.6)*dt; if(rideS>7950){rideS=-250;}          // 終端で笹塚方へ戻る
+  rideS+=(rideV/3.6)*dt; if(rideS>DOM.x1+30){rideS=DOM.x0+20;}   // 線路の端(泉岳寺方のトンネル)の先で新馬場方へ戻る
 }
 // マスコン操作の遊び(反応遅れ1.0秒):cmdNotch=操作値 / notch=実際に効いている段
 let cmdNotch=NIDX_N, accEff=0; const NOTCH_LAG=1.0;   // accEff=実際に効いている加速度[km/h/s]
@@ -8218,7 +8223,7 @@ function updSpd(){
   }
   const nd=NOTCHES[atcOn?NIDX_B7:cmdNotch], mn=$('masName');
   // ATCが介入しているときは、操作段ではなく実際に効いている段を出す
-  mn.textContent=atcOn?'B7\u00a0ATC':nd.s;   // P4 / N / B7 / EB のような短い段位表示
+  mn.textContent=atcOn?'B7\u00a0保安':nd.s;   // P4 / N / B7 / EB のような短い段位表示
   mn.className='notch '+(atcOn?'e':nd.k);
   const rk=$('rideKindInfo'); if(rk) rk.textContent=rideKind;
   const lb=$('atcInfo');
