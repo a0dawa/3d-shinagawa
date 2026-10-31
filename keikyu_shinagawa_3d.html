@@ -6055,8 +6055,8 @@ const K21={
   DZ1:2.95, DOOR_HW:0.60,                // 客用扉の上端・開口の半幅(扉幅1.2m)
   FW:0.017, DWIN:[0.10,0.50],            // 窓枠の見付け/扉窓(扉中心からの距離)
   WIN:[0,0.935], END_WIN:[5.63,8.30],    // (9000系の名残。窓は k21SideWindows が並べる)
-  RED:[1.90,2.98], BLUE:[0.5,0.5],       // RED=窓まわりの白い帯(シェーダの C_RED を白にする)/BLUE=無し(幅0)
-  FBLUE0:0.5, BLUE_TAPER:[8.18,8.45],
+  RED:[1.90,2.98], BLUE:[1.5,1.5],       // RED=窓まわりの白い帯(シェーダの C_RED を白にする)/BLUE=無し(幅0)
+  FBLUE0:1.5, BLUE_TAPER:[8.18,8.45],
   IVORY_X:99,                            // 前頭部の塗り分けは無い(車体と同じ赤)
   CREW:[7.52,8.00], CREW_Z:[1.16,2.95], CREW_WIN:[7.58,7.94,2.02,2.80],   // 乗務員扉・その窓(推定)
   HANDRAIL:[8.063,7.467,1.292,2.459],    // 乗務員扉の前後の手すり
@@ -6097,7 +6097,9 @@ const K21_ROWS=(function(){
   const R=[], hw=K21.HWB;
   for(let k=0;k<7;k++){const t=k/6*Math.PI/2;
     R.push([K21.Z_FLR-(K21.Z_FLR-K21.Z_BOT)*Math.cos(t), hw-0.05+0.05*Math.sin(t)]);}
-  for(const z of [K21.FBLUE0,K21.BLUE[0],K21.BLUE[1],K21.RED[0],K21.RED[1],K21.DWZ0,K21.WZ0,2.44,K21.DWZ1,K21.WZ1,K21.DZ1].sort((a,b)=>a-b)) R.push([z,hw]);
+  // 帯・窓・扉の境目の高さ(床面〜側面の上端の間だけ・重複なし。2100形は青帯が幅0)
+  for(const z of [...new Set([K21.FBLUE0,K21.BLUE[0],K21.BLUE[1],K21.RED[0],K21.RED[1],K21.DWZ0,K21.WZ0,2.44,K21.DWZ1,K21.WZ1,K21.DZ1])]
+                 .filter(z=>z>K21.Z_FLR+1e-6&&z<K21.Z_SH0-1e-6).sort((a,b)=>a-b)) R.push([z,hw]);
   R.push([K21.Z_SH0,hw]);
   for(let k=1;k<15;k++){const t=k/15;
     const y=hw*Math.pow(Math.cos(t*Math.PI/2),0.5);
@@ -6628,7 +6630,31 @@ function k8CarSpec(form,n){
 /* ---- 走行列車(7本。TRAIN_DEF)。各駅停車・急行・特急を自動運転で走らせる ----
    加速=P4(3.3km/h/s), 上限=60km/h, 減速=B5(3.0km/h/s), 停車時間=25秒。
    状態機械: 'run'(駅間走行) → 'brake'(停止位置へ減速) → 'dwell'(25秒停車) → 'run' */
-const DRIVE={ACC:3.3, DEC:3.0, VMAX_KMH:60, DWELL:30};   // 停車30秒(推定)   // 自動運転パラメータ
+const DRIVE={ACC:3.3, DEC:3.0, VMAX_KMH:60, DWELL:30};   // 自動運転パラメータ(停車30秒は推定)
+/* ---- 曲線の制限速度(品川版。v1 から移植)--------------------------------------------
+   線路中心の曲線半径 R(20m の弦の3点の外接円)から v=3.7√R[km/h] を 5km/h 単位に切り下げ、種別の上限で頭打ち。
+   列車は「先頭から最後尾までの区間の最も低い制限」と「前方の低い制限へ DEC で減速できる速度」を守る(vAllow)。
+   係数 3.7 は推定(実際の制限速度は未確認)。表 VLIM は 1m ごと[m/s] */
+const VLIM=(function(){
+  const s0=DOM.x0-400, s1=DOM.x1+400, v=new Float32Array(Math.ceil(s1-s0)+1), P=s=>frame(s,0);
+  for(let i=0;i<v.length;i++){
+    const s=s0+i; let R=Infinity;
+    if(s>DOM.x0+10&&s<DOM.x1-10){
+      const a=P(s-10), b=P(s), c=P(s+10), ab=Math.hypot(b.x-a.x,b.z-a.z), bc=Math.hypot(c.x-b.x,c.z-b.z), ca=Math.hypot(a.x-c.x,a.z-c.z);
+      const cr=Math.abs((b.x-a.x)*(c.z-a.z)-(b.z-a.z)*(c.x-a.x)); if(cr>1e-9) R=ab*bc*ca/(2*cr);
+    }
+    v[i]=Math.min(120,Math.floor(3.7*Math.sqrt(R)/5)*5)/3.6;
+  }
+  return {s0:s0, v:v, at:s=>v[clamp(Math.round(s-s0),0,v.length-1)]};
+})();
+function vAllow(t){                         // 列車 t が今出してよい速度[m/s](編成の全長+前方の減速)
+  const DEC=DRIVE.DEC/3.6, h=t.x+t.dir*CAR_HALF, tl=h-t.dir*trainLen(t), look=t.v*t.v/(2*DEC)+30;
+  let va=trainVmax(t);
+  for(let d=-(h-tl)*t.dir;d<=look;d+=1){     // d<0:編成の下(最後尾まで)/d>0:前方
+    const vl=VLIM.at(h+t.dir*d); va=Math.min(va, d<=0?vl:Math.sqrt(vl*vl+2*DEC*d));
+  }
+  return va;
+}
 // 駅別の停車時間[秒](未記載の駅は DRIVE.DWELL)。待避線に入る駅は1分。
 const DWELL_OF={};   // 駅別の停車時間(品川版は無し)
 /* 列車の種別(利用者指示:各停以外は識別灯が点く。点く列車を走らせる)。
@@ -6778,7 +6804,7 @@ function startClear(t){                   // 入り直す所(線路の端の外)
 }
 // 1列車の自動運転を1フレーム進める
 function driveTrain(t,dt){
-  const VMAX=trainVmax(t), DEC=DRIVE.DEC/3.6;
+  const VMAX=Math.min(trainVmax(t),vAllow(t)), DEC=DRIVE.DEC/3.6;   // 曲線の制限(vAllow)も上限に入れる
   if(t.st==='wait'){                        // 線路の端の先:入り直す所が空くまで待つ(見えない)
     if(startClear(t)){ t.x=t.x0; t.v=0; t.st='run'; t.target=null; }
     return;
@@ -6794,7 +6820,7 @@ function driveTrain(t,dt){
   const room=gapAhead(t)-HEAD.MARGIN;      // 前の列車の手前で止まれる余裕(無ければ Infinity)
   const brakeDist=(t.v*t.v)/(2*DEC);        // 現速度から止まるのに要る距離
   if(t.target===null){                      // 前方に駅なし=線路の端の先まで走り抜け、入り直す
-    if(room<=brakeDist+0.2) t.v=Math.max(0,t.v-DEC*dt); else t.v=Math.min(VMAX,t.v+DRIVE.ACC/3.6*dt);
+    if(room<=brakeDist+0.2) t.v=Math.max(0,t.v-DEC*dt); else if(t.v>VMAX) t.v=Math.max(VMAX,t.v-DEC*dt); else t.v=Math.min(VMAX,t.v+DRIVE.ACC/3.6*dt);
     t.x+=t.dir*Math.min(t.v*dt,Math.max(0,room));
     if((tailRear(t)-(t.dir>0?DOM.x1:DOM.x0))*t.dir>5){       // 最後尾まで線路の端の外へ出た
       t.v=0; t.target=null; t.atSt=null;
@@ -6812,7 +6838,8 @@ function driveTrain(t,dt){
     else t.x+=t.dir*Math.min(t.v*dt,Math.max(0,lim));         // 止まるべき所を越えない
   }else{                                     // 力行/惰行フェーズ(種別の上限。各停60・特急90km/h)
     t.st='run';
-    t.v=Math.min(VMAX, t.v+DRIVE.ACC/3.6*dt);
+    if(t.v>VMAX) t.v=Math.max(VMAX, t.v-DEC*dt);   // 曲線の制限へ減速
+    else t.v=Math.min(VMAX, t.v+DRIVE.ACC/3.6*dt);
     t.x+=t.dir*t.v*dt;
   }
 }
