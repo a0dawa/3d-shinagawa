@@ -34,7 +34,8 @@ const X = require('./stub_three')(path,
 /* ---- 期待値(検証側が独立して持つ) ---------------------------------------- */
 const REF = {
   EYE_MIN: 2.5, EYE_MAX: 4.5,       // 前面展望の眼高(レール面から)[m]
-  OFF_MIN: 1.8, OFF_MAX: 12.0,      // 走行線の線路中心(線形中心からの距離)[m]
+  OFF_MIN: 1.8, ON_TRACK: 0.6,      // 走行線の線路中心(線形中心からの距離)の下限[m]・眼と走行線の中心の差の上限[m]
+                                    // 品川版:品川の前後で本線が外側(13m)を通るので、決まった上限ではなく走行線の中心との差で見る
                                     // 複線の標準は中心から2.0m。待避・通過線で広がる
   STA_D_MIN: 120, STA_D_MAX: 400,   // 駅フォーカスの距離[m]
   STA_EL_MIN: 20, STA_EL_MAX: 60,   // 駅フォーカスの見下ろし角[°]
@@ -771,8 +772,8 @@ const TPROP = {};
     const eye = c.y - y;
     if (!(eye > REF.EYE_MIN && eye < REF.EYE_MAX)) bad = bad || 's=' + s.toFixed(0) + ' 眼高 ' + eye.toFixed(2) + 'm';
     // 線形中心からの距離(走行線の上に乗っているか)
-    const lat = Math.hypot(c.x - mid.x, c.z - mid.z);
-    if (!(lat > REF.OFF_MIN && lat < REF.OFF_MAX)) bad = bad || 's=' + s.toFixed(0) + ' 横 ' + lat.toFixed(2) + 'm';
+    const lat = Math.hypot(c.x - mid.x, c.z - mid.z), run = Math.abs(X.zRunDown(s));
+    if (!(lat > REF.OFF_MIN && Math.abs(lat - run) < REF.ON_TRACK)) bad = bad || 's=' + s.toFixed(0) + ' 横 ' + lat.toFixed(2) + 'm(走行線 ' + run.toFixed(2) + 'm)';
     // 左右どちら側か(線形の接線に対する外積の符号)。全区間で同じでなければ反転している
     const a = X.frame(s - 10, 0), b = X.frame(s + 10, 0);
     const tx = b.x - a.x, tz = b.z - a.z;
@@ -787,7 +788,7 @@ const TPROP = {};
     if (dot(d, t) > 0.95) nTan++;
   }
   ok('前面展望の眼高と線路', bad === null, '眼高' + REF.EYE_MIN + '〜' + REF.EYE_MAX
-    + 'm / 横' + REF.OFF_MIN + '〜' + REF.OFF_MAX + 'm', bad === null ? N + '点すべてOK' : bad);
+    + 'm / 横' + REF.OFF_MIN + 'm 以上・走行線の中心との差 ' + REF.ON_TRACK + 'm 未満', bad === null ? N + '点すべてOK' : bad);
   ok('前面展望が片側に固定', signs.size === 1, '全区間で同じ側', signs.size + '通り');
   ok('前面展望が前を向く', nTan === N, N + '点すべて接線方向', nTan + '点');
 }

@@ -19,7 +19,7 @@ const X = require('./stub_three')(path,
   'PSD:PSD,K8:K8,DECK_END:DECK_END,LODS:LODS,POLE_S:POLE_S,WIRE_CAT:WIRE_CAT,' +
   'GUIDES:GUIDES,depList:depList,pidsSetTime:pidsSetTime,' +
   'PEOPLE:(typeof PEOPLE!=="undefined"?PEOPLE:[]),scene:scene,STD:STD,POLES:(typeof POLES!=="undefined"?POLES:[]),' +
-  'TURNOUTS:TURNOUTS,prjXY:prjXY,INO:(typeof INO!=="undefined"?INO:null),INO_PLAT:(typeof INO_PLAT!=="undefined"?INO_PLAT:null),XR:(typeof XR!=="undefined"?XR:null),RAW:RAW,LAT0:LAT0,LON0:LON0,MLAT:MLAT,MLON:MLON,VIA_COLS:VIA_COLS,lodStruct:lodStruct,camera:camera,' +
+  'TURNOUTS:TURNOUTS,BUFFERS:BUFFERS,prjXY:prjXY,INO:(typeof INO!=="undefined"?INO:null),INO_PLAT:(typeof INO_PLAT!=="undefined"?INO_PLAT:null),XR:(typeof XR!=="undefined"?XR:null),RAW:RAW,LAT0:LAT0,LON0:LON0,MLAT:MLAT,MLON:MLON,VIA_COLS:VIA_COLS,lodStruct:lodStruct,camera:camera,' +
   'trains:trains,stepWorld:stepWorld,FLOW:FLOW,stopPosOf:stopPosOf,CAR_HALF:CAR_HALF,placeTrain:placeTrain,trainPSD:trainPSD');
 
 /* ---- 検証側が独立に持つ寸法 -------------------------------------------- */
@@ -409,8 +409,9 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
    2026-10-13 利用者指示:2面4線の本線と待避線の間を 11m に(以前 9.6m。ホームは 6.5+1.4=7.9m)、分岐をさらに駅へ50m 寄せる(196.5→146.5m)。
    芦花公園の相対式ホームを2m ずつ広く(4.5→6.5m) */
 {
-  // 品川(島式2面4線):ホームの幅 7.9m(推定)・本線から副本線への分岐の先端は駅の中心から 203m(推定)
-  const RW = { QUAD: ['品川'], QUAD_W: 7.9, TIP: 203, TIP_TOL: 3, TURN_N: 4, EDGE: [1.40, 1.60], PSD_IN: 0.12 };
+  // 品川(島式2面4線。東京都の標準横断図:本線=外側・内側の2線は泉岳寺方で引上線になって車止めで終わる):
+  // ホームの幅 7.9m(推定)・本線から内側の線への分岐は南(横浜方)だけで、先端は駅の中心から 203m(推定)の2組
+  const RW = { QUAD: ['品川'], QUAD_W: 7.9, TIP: 203, TIP_TOL: 3, TURN_N: 2, EDGE: [1.40, 1.60], PSD_IN: 0.12 };
   let bW = null;
   for (const n of RW.QUAD) {
     const st = X.STA.find((z) => z.n === n), L = X.PLATS.filter((q) => Math.abs((q.x0 + q.x1) / 2 - st.x) < 60);
@@ -424,11 +425,15 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
       nT++; if (Math.abs(Math.abs(T.s - st.x) - RW.TIP) > RW.TIP_TOL && !bT) bT = n + ' ' + (T.s - st.x).toFixed(1) + 'm';
     }
   }
-  ok('副本線の分岐の位置', bT === null && nT === RW.TURN_N, '駅の中心から ' + RW.TIP + '±' + RW.TIP_TOL + 'm(' + RW.TURN_N + '組)', bT || nT + '組');
+  ok('内側の線の分岐の位置(南だけ)', bT === null && nT === RW.TURN_N, '駅の中心から ' + RW.TIP + '±' + RW.TIP_TOL + 'm(' + RW.TURN_N + '組)', bT || nT + '組');
+  // 内側の線の北の端は引上線の車止め(ホームの北端より先)
+  const pulls = X.TRACKS.filter((t) => /副本線/.test(t.id));
+  const badP = pulls.filter((t) => !X.BUFFERS.some((b) => b.id === t.id) || !(t.x1 > X.platRange(X.STA.find((z) => z.n === '品川'))[1] + 100));
+  ok('内側の線は泉岳寺方の引上線(車止め)', pulls.length === 2 && badP.length === 0, '2線・ホームの北端の 100m より先に車止め', pulls.length + '線' + (badP.length ? '・' + badP.map((t) => t.id).join(',') : ''));
   let bE = null, nE = 0;
   for (const n of RW.QUAD) {
     const st = X.STA.find((z) => z.n === n);
-    const loops = X.TRACKS.filter((t) => /副本線/.test(t.id) && st.x > t.x0 && st.x < t.x1);
+    const loops = X.TRACKS.filter((t) => /^本線/.test(t.id) && st.x > t.x0 && st.x < t.x1 && Math.abs(t.zf(st.x)) > 5);   // 外側を通る本線
     for (const q of X.STRUCT) {
       if (q.tag !== 'ホーム' || Math.abs((q.s0 + q.s1) / 2 - st.x) > 110) continue;
       for (const t of loops) {
@@ -441,7 +446,7 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
       }
     }
   }
-  ok('副本線の側のホームの縁が線路に沿う', bE === null && nE > 0, '線路の中心から縁 ' + RW.EDGE.join('〜') + 'm', bE || nE + '区間');
+  ok('本線(外側)の側のホームの縁が線路に沿う', bE === null && nE > 0, '線路の中心から縁 ' + RW.EDGE.join('〜') + 'm', bE || nE + '区間');
   let bD = null, nD = 0;
   for (const r of X.PSD) {
     if (RW.QUAD.indexOf(r.st.n) < 0 || !r.inst || !r.inst.mats) continue;
