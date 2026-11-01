@@ -832,7 +832,10 @@ const STA_BLDG_HALF=23;
 const BLDG_AT={};
 const bldgSpan=st=>{const r=BLDG_AT[st.n]||[-STA_BLDG_HALF,STA_BLDG_HALF];return [st.x+r[0],st.x+r[1]];};
 const STAIR_AT={};
-const CONC_AT={}, CONC_HALF=18;
+/* 橋上駅舎の中心のずらし[m](ホームの中ほどから)。品川は JR 品川駅の人工地盤(国土地理院の線路上空の建物。s≈1365〜1467)と
+   JR 品川駅の位置(s≈1377)に合わせて泉岳寺方へ30m(推定)。ここから東西自由通路が東の JR 側・西の国道15号上空のデッキへ延びる */
+const CONC_AT={'品川':30}, CONC_HALF=18;
+const CONC_EXT={};   // 橋上駅舎の範囲の登録簿 {pq,o0,o1,yF}(7章。品川の自由通路の延伸が使う)
 const CONC_CUT=7.02;
 const concMid=st=>{const r=platRange(st);return (r[0]+r[1])/2+(CONC_AT[st.n]||0);};
 CUT_DECKS.push({kind:'覆い',aS:CUT_END-20,bS:CUT_END,aN:CUT_END-20,bN:CUT_END,bot:DECK_BOT,top:0.10});
@@ -3796,9 +3799,14 @@ for(const s of STA){
   if(up){                                            // 橋上駅舎(仙川):ホームの中ほどで線路をまたぐ
     const ps=pltOf(s);
     // 掘割の駅は掘割の両側の地表へ 3m ずつ出る(擁壁の上に載る。柱はホームの上だけ)
-    const o0=cutSta?-(cutHalf(pq,-1)+3.0):Math.min(...ps.map(q=>q[0]-q[1]))-4.4, o1=cutSta?cutHalf(pq,1)+3.0:Math.max(...ps.map(q=>q[0]+q[1]))+0.6;
-    const cols=[{s:[pq-STD.COLP,pq+STD.COLP],o:0,y:y+STD.PLAT}];
-    if(!cutSta) cols.push({s:[pq-14,pq,pq+14],o:o0+0.6,y:0},{s:[pq-14,pq,pq+14],o:o1-0.4,y:0});
+    /* 品川(2面4線=quad):副本線がホームの外側にあるので、駅舎は構造物の幅いっぱい(±(deckHalf+0.6))にし、外側の柱は構造物の外、
+       中の柱は線路の間ではなく島式ホームの中心に立てる(京王版の式=ホームの外縁+0.6 だと副本線の上に柱が立つ) */
+    const quad=(s.t==='quad');
+    const o0=cutSta?-(cutHalf(pq,-1)+3.0):quad?-(deckHalf(pq)+0.6):Math.min(...ps.map(q=>q[0]-q[1]))-4.4,
+          o1=cutSta?cutHalf(pq,1)+3.0:quad?deckHalf(pq)+0.6:Math.max(...ps.map(q=>q[0]+q[1]))+0.6;
+    const cols=quad?ps.map(q=>({s:[pq-STD.COLP,pq+STD.COLP],o:q[0],y:y+STD.PLAT})):[{s:[pq-STD.COLP,pq+STD.COLP],o:0,y:y+STD.PLAT}];
+    if(!cutSta) cols.push({s:[pq-14,pq,pq+14],o:quad?o0+0.3:o0+0.6,y:0},{s:[pq-14,pq,pq+14],o:quad?o1-0.3:o1-0.4,y:0});
+    CONC_EXT[s.n]={pq:pq,o0:o0,o1:o1,yF:yF};
     concourse(S,s,pq-CONC_HALF,pq+CONC_HALF,o0,o1,y,yF,cols);
     if(cutSta) for(const sg of[-1,1]){                // 掘割の外(地表の上)の部分は床の下を基壇で埋める
       const a=cutHalf(pq,sg)+CUT_W.OUT, b=sg>0?o1:-o0;
@@ -3818,6 +3826,56 @@ for(const s of STA){
   sp.scale.set(105,36,1);   // 駅名ラベル(小型化)
   const p=frame(c0,0);sp.position.set(p.x,railY(c0)+38,p.z);
   staLabels.push(sp);
+}
+
+/* ---- 品川の東西自由通路(延伸)と西口駅前広場デッキ(計画。v1 から移植・推定) --------------------------------
+   京急の橋上駅舎(上の concourse。床はレール面+7.6m の上=架線より上)と同じ床の高さで、
+   ・東:JR 品川駅の人工地盤(国土地理院の線路上空の建物)の西の縁まで通路を延ばす
+   ・西:国道15号の東の縁まで通路を延ばし、国道15号の上に西口駅前広場のデッキ(s=駅の中心−10〜+170・v1 と同じ範囲)を架ける
+     デッキの幅は国道15号の実際の道路の面(国土地理院。幹線)から求める(東の縁+1m 〜 西の縁−3m)
+   形・位置・高さはどれも推定(国土交通省 東京国道事務所の「品川駅西口基盤整備」の資料で直す箇所。CLAUDE.md の表) */
+const SG_DECK=[];                                   // 登録簿 {kind,s0,s1,o0,o1,y0,y1}(検証用)
+{
+  const st=STA_SG, S=STG[STA.indexOf(st)], c0=st.x, y=railY(c0), yF=y+RAIL_TOP+7.6+0.34, yB=yF-0.34, pq=concMid(st);
+  const a=pq-CONC_HALF, b=pq+CONC_HALF, ps=pltOf(st);
+  const CE=CONC_EXT[st.n], oW=CE.o0, oE=CE.o1;          // 橋上駅舎の西端・東端(7章の登録簿)
+  const major=(x,z)=>{const l=PLR_GRID.get(Math.floor(x/PLR_CELL)+','+Math.floor(z/PLR_CELL));
+    return !!l&&l.some(R=>R.k===1&&x>R.bb[0]&&x<R.bb[1]&&z>R.bb[2]&&z<R.bb[3]&&polyDist(R.P,x,z)<0);};
+  // 国道15号の道路の面の東の縁・西の縁(線路の西。中央分離帯などの切れ目は 8m まで続きとみなす。交わる道路を拾わないよう幅は 40m まで)
+  const r15=s=>{let e=null,w=null;
+    for(let o=-15;o>=-140;o-=1){const f=frame(s,o); if(major(f.x,f.z)){ if(e===null) e=o; if(o<e-40) break; w=o; } else if(e!==null&&o<w-8) break;}
+    return e===null?null:{e:e,w:w};};
+  const R0=r15(pq), oR=R0?R0.e+1:-32;                 // 通路の西端=国道15号の東の縁の 1m 手前(歩道の上)
+  const glassEnds=(s0,s1,o0,o1,tag)=>{               // 通路の床・屋根・両側(s の端)のガラスの壁
+    S.mg.col(0xc9ccd0).cbox(SV,s0,s1,(o0+o1)/2,(o1-o0)/2,yB,yF,{tag:tag});
+    S.mg.col(0xe8e9e6).cbox(SV,s0,s1,(o0+o1)/2,(o1-o0)/2+0.6,yF+3.3,yF+3.55,{tag:tag});
+    for(const q of[s0,s1]) S.mg.cbox(MAT.glass,q-0.05,q+0.05,(o0+o1)/2,(o1-o0)/2,yF,yF+3.3);
+    SG_DECK.push({kind:tag,s0:s0,s1:s1,o0:o0,o1:o1,y0:yB,y1:yF+3.55,
+      inside:(s,o,r)=>s>s0-r&&s<s1+r&&o>Math.min(o0,o1)-r&&o<Math.max(o0,o1)+r});
+  };
+  // 東:JR の人工地盤の西の縁(線路上空の建物のうち駅に重なるもの)まで。無ければ +26m
+  let oJ=26;
+  if(GSR) for(const [R] of GSR.decks){ const q=R.map(p=>prjXY(p[0],p[1]));
+    if(q.some(v=>v.s>a&&v.s<b)&&q.some(v=>v.off>oE)) oJ=Math.max(oE+4,Math.min(oJ,Math.min(...q.filter(v=>v.off>oE).map(v=>v.off))+4)); }
+  glassEnds(a,b,oE,oJ,'東西自由通路(延伸・東)');
+  glassEnds(a,b,oR,oW,'東西自由通路(延伸・西)');
+  for(const q of[a+4,b-4]) for(const o of[(oE+oJ)/2,(oR+oW)/2]){            // 通路の柱(地面から床まで)
+    const f=frame(q,o), g=terH(f.x,f.z); S.mg.col(0xd9dbdd).box(SV,q,o,g,yB,0.6,0.6,{skip:'-y',tag:'自由通路の柱'}); }
+  // 西口駅前広場のデッキ(国道15号の上)
+  const d0=c0-10, d1=c0+170, W=s=>{const r=r15(s)||R0||{e:-31,w:-63}; return {e:Math.max(r.e+1,oR),w:r.w-3};};
+  const SM=[]; for(let q=d0;q<=d1+1e-6;q+=10) SM.push([q,W(q)]);       // 10m ごとの幅(ロフトの中は線形)
+  const Wa=s=>{const i=clamp(Math.floor((s-d0)/10),0,SM.length-2), t=clamp((s-SM[i][0])/10,0,1);
+    return {e:SM[i][1].e+(SM[i+1][1].e-SM[i][1].e)*t, w:SM[i][1].w+(SM[i+1][1].w-SM[i][1].w)*t};};
+  S.mg.col(0xd3d0c8).loft(SV,d0,d1,s=>{const r=Wa(s);return [[r.w,yB],[r.e,yB],[r.e,yF],[r.w,yF]];},{closed:true,caps:true,tag:'西口駅前広場デッキ'});
+  for(const sg of[0,1]) S.md.loft(MAT.glass,d0,d1,s=>{const o=sg?Wa(s).e:Wa(s).w;return [[o,yF],[o,yF+1.1]];},{side:sg?1:-1});   // ガラスの手すり
+  for(let q=d0+8;q<d1-4;q+=22){ const r=Wa(q);                                    // 植栽(緑の枡)
+    for(const f of[0.3,0.7]) S.mg.col(0x6f9160).box(SV,q,r.w+(r.e-r.w)*f,yF,yF+1.0,6,3,{skip:'-y'}); }
+  for(let q=d0+6;q<d1-2;q+=24){ const r=Wa(q);                                    // 柱(国道15号の両側の歩道の上)
+    for(const o of[r.e-0.8,r.w+1.5]){ const f=frame(q,o), g=terH(f.x,f.z); S.mg.col(0xc4c7ca).cyl(SV,q,o,g,yB,0.55,10,{tag:'デッキの柱'}); } }
+  SG_DECK.push({kind:'西口駅前広場デッキ',s0:d0,s1:d1,o0:Math.min(...SM.map(m=>m[1].w)),o1:Math.max(...SM.map(m=>m[1].e)),y0:yB,y1:yF+1.1,
+    inside:(s,o,r)=>{ if(s<d0-r||s>d1+r) return false; const w=Wa(clamp(s,d0,d1)); return o>w.w-r&&o<w.e+r; }, width:Wa});
+  tag('東西自由通路(延伸)',pq,yF+14,(oE+oJ)/2+6);
+  tag('西口駅前広場デッキ(計画)',(d0+d1)/2,yF+12,Wa((d0+d1)/2).w-8);
 }
 
 /* ============ 6b. 架線(インテグレート架線) ============
@@ -4109,6 +4167,8 @@ const keepHw=(q,u,n)=>typeof q.hw==='function'?q.hw(clamp(u,q.u0,q.u1),n):q.hw;
 if(!PLL){
 for(const gq of XINGS) keepBand(gq[1],5.5,120); // 旧踏切位置の高架下通り抜け道路
 }
+// 品川の東西自由通路(延伸)・西口駅前広場デッキ(7章 SG_DECK)と重なる所には建物・木を置かない(国土地理院の建物は現況。推定の計画に合わせて外す)
+for(const d of SG_DECK) KEEP.push({k:'f', fn:d.inside});
 /* (s,off)に半径radの物を置けるか。高架下・側道は桁半幅から求める(桁幅を変えれば追従)。 */
 function cityFree(s,off,rad,px,pz,roadIn){       // roadIn:道路の面への食い込みを許す量[m](実データの建物)
   // 高架下+側道。掘割(DECK_END より西)は側ごとの幅(仙川は北に広い単式ホームがあり、南は狭い)
@@ -4118,6 +4178,7 @@ function cityFree(s,off,rad,px,pz,roadIn){       // roadIn:道路の面への食
     else if(q.k==='s'){ if(Math.abs(off-q.o)<q.hw+rad && s>q.s0 && s<q.s1) return false; }
     else if(q.k==='r'){ if(Math.abs(s-q.c)<q.hs+rad && Math.abs(off-q.o)<q.ho+rad) return false; }
     else if(q.k==='d'){ if(Math.hypot(s-q.c,off-q.o)<q.r+rad) return false; }
+    else if(q.k==='f'){ if(q.fn(s,off,rad)) return false; }                       // 形を関数で持つ占有域(品川の自由通路・西口デッキ)
     else {                                                     // 交差鉄道の中心線(世界座標の曲線)
       const p=q.A.uv(px,pz);
       if(Math.abs(p.n)<keepHw(q,p.u,p.n)+rad && p.u>q.u0-rad && p.u<q.u1+rad) return false;
@@ -4842,8 +4903,11 @@ if(GSR){
       I.push(i0,i1,i2,i0,i2,i3, i0,i2,i1,i0,i3,i2);}            // 両面(多角形の向きが揃わないことがある)
   };
   const gMin=R=>Math.min(...R.map(p=>terH(p[0],p[1])));
-  for(const R of GSR.roofs){ const g=gMin(R); slab(R,g+4.3,g+4.6,0x9aa0a6,0x7d848c); }            // ホームの上屋
-  for(const [R,h] of GSR.decks){ const g=gMin(R); slab(R,g+6.8,g+6.8+Math.max(3.2,h-6.8),0xd9dcdf,0xb7c3cc); }   // 線路上空の建物
+  // 京急の構造物の幅(deckHalf+0.5m)の内側の頂点は、その外縁へ線路直角に寄せる(国土地理院の形は現況。事業後は京急の駅になる所)
+  const clipKQ=R=>R.map(p=>{const q=prjXY(p[0],p[1]); if(q.s<DOM.x0||q.s>DOM.x1) return p;
+    const lim=deckHalf(q.s)+0.5; if(Math.abs(q.off)>=lim) return p; const f=frame(q.s,(q.off<0?-1:1)*lim); return [f.x,f.z];});
+  for(const R0 of GSR.roofs){ const R=clipKQ(R0), g=gMin(R); slab(R,g+4.3,g+4.6,0x9aa0a6,0x7d848c); }            // ホームの上屋
+  for(const [R0,h] of GSR.decks){ const R=clipKQ(R0), g=gMin(R); slab(R,g+6.8,g+6.8+Math.max(3.2,h-6.8),0xd9dcdf,0xb7c3cc); }   // 線路上空の建物
   const m=new THREE.Mesh(facesGeo(P,N,I,C),M(0xffffff,{vertexColors:true,side:THREE.DoubleSide}));
   m.name='JR等の線路'; m.receiveShadow=true; scene.add(m);
   STRUCT.push({tag:'JR等の線路', n:GSR.rails.length, roofs:GSR.roofs.length, decks:GSR.decks.length});

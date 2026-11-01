@@ -15,7 +15,7 @@ const X = require('./stub_three')(path,
   'DOM:DOM,STA:STA,frame:frame,railY:railY,prjXY:prjXY,deckHalf:deckHalf,TRACKS:TRACKS,platRange:platRange,' +
   'stopPosOf:stopPosOf,DECK_END:DECK_END,PS0:PS0,DECK_DROP:DECK_DROP,GIRDER:GIRDER,terH:terH,' +
   'GSR:(typeof GSR!=="undefined"?GSR:null),ROADS_PL:ROADS_PL,VIA_COLS:VIA_COLS,K21:K21,TRAIN_CARS:TRAIN_CARS,' +
-  'VIA_THRU:(typeof VIA_THRU!=="undefined"?VIA_THRU:[]),PIERS:PIERS');
+  'VIA_THRU:(typeof VIA_THRU!=="undefined"?VIA_THRU:[]),PIERS:PIERS,SG_DECK:(typeof SG_DECK!=="undefined"?SG_DECK:[])');
 
 /* ---- 検証側が独立に持つ基準値 ---- */
 const REF = {
@@ -32,6 +32,8 @@ const REF = {
   GIRDER: 2.4,         // 標準の RC 桁(縦梁・横梁)の下端:レール面からの深さ[m]
   DECK_DROP: 0.55, THRU_FLOOR: 1.05,   // 下路桁:床版の上面(レール面−0.55)から床組の下端まで[m]
   THRU_SPAN: 34,       // これを超える径間は下路桁(鋼)にする[m]
+  CAT_TOP: 6.15,       // 京急の架線が占める高さの上端(レール面から。き電ちょう架線 5.90+余裕 0.25)
+  CAT_GAP: 0.3,        // 自由通路の床の下端と架線の上端の離隔[m]
   CROSS: 45,           // 「線路を横切る道路」とみなす角度[°](道路の面の主軸と線路の接線。これ未満は線路に沿う道路=別線の用地)
 };
 
@@ -142,6 +144,28 @@ const bottom = (s) => inThru(s) ? X.railY(s) - REF.DECK_DROP - REF.THRU_FLOOR : 
     if (!X.VIA_THRU.some((q) => Math.abs(q.s0 - P[i - 1]) < 0.01 && Math.abs(q.s1 - P[i]) < 0.01) && !bad) bad = P[i - 1].toFixed(0) + '〜' + P[i].toFixed(0);
   }
   ok('径間 ' + REF.THRU_SPAN + 'm 超は下路桁', bad === null, '全て', bad ? bad + ' が RC 桁' : n + '径間(下路桁 ' + X.VIA_THRU.length + '径間)');
+}
+
+/* ---- 6c. 品川の東西自由通路・西口駅前広場デッキ ---- */
+{
+  // デッキ・通路の下の道路(国土地理院の道路の面)の桁下
+  let cmin = Infinity, at = null, n = 0;
+  for (const d of X.SG_DECK) for (const R of X.ROADS_PL) for (const p of R.P) {
+    const q = X.prjXY(p[0], p[1]); if (!d.inside(q.s, q.off, 0)) continue;
+    const c = d.y0 - (X.terH(p[0], p[1]) + REF.ROAD_Y); n++;
+    if (c < cmin) { cmin = c; at = d.kind; }
+  }
+  ok('西口デッキ・自由通路の下の道路の桁下', X.SG_DECK.length > 0 && n > 0 && cmin >= REF.ROAD_CLEAR, '≥' + REF.ROAD_CLEAR + 'm',
+     X.SG_DECK.length ? (n ? cmin.toFixed(2) + 'm(' + at + '・' + n + '点)' : '道路が下に無い') : 'デッキが無い');
+  // 線路の上を渡る部分(京急の線路の帯の中)の床の下端と京急の架線
+  let gmin = Infinity, ga = null;
+  for (const d of X.SG_DECK) for (let s = d.s0; s <= d.s1; s += 2) for (const t of X.TRACKS) {
+    if (s < t.x0 || s > t.x1) continue; const o = t.zf(s); if (!d.inside(s, o, 0)) continue;
+    const g = d.y0 - (X.railY(s) + REF.CAT_TOP); if (g < gmin) { gmin = g; ga = d.kind + ' s=' + s.toFixed(0); }
+  }
+  // 橋上駅舎(線路をまたぐ本体)は 7章 concourse。ここでは延伸の部分が線路に掛からないことも含めて見る
+  ok('自由通路の床の下端と京急の架線', gmin === Infinity || gmin >= REF.CAT_GAP, '≥' + REF.CAT_GAP + 'm(架線の上端 レール面+' + REF.CAT_TOP + 'm)',
+     gmin === Infinity ? '延伸の部分は線路に掛からない' : gmin.toFixed(2) + 'm(' + ga + ')');
 }
 
 /* ---- 7. 品川の停止位置と編成の長さ ---- */
