@@ -14,7 +14,8 @@ const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'DOM:DOM,STA:STA,frame:frame,railY:railY,prjXY:prjXY,deckHalf:deckHalf,TRACKS:TRACKS,platRange:platRange,' +
   'stopPosOf:stopPosOf,DECK_END:DECK_END,PS0:PS0,DECK_DROP:DECK_DROP,GIRDER:GIRDER,terH:terH,' +
-  'GSR:(typeof GSR!=="undefined"?GSR:null),ROADS_PL:ROADS_PL,VIA_COLS:VIA_COLS,K21:K21,TRAIN_CARS:TRAIN_CARS');
+  'GSR:(typeof GSR!=="undefined"?GSR:null),ROADS_PL:ROADS_PL,VIA_COLS:VIA_COLS,K21:K21,TRAIN_CARS:TRAIN_CARS,' +
+  'VIA_THRU:(typeof VIA_THRU!=="undefined"?VIA_THRU:[]),PIERS:PIERS');
 
 /* ---- 検証側が独立に持つ基準値 ---- */
 const REF = {
@@ -28,6 +29,9 @@ const REF = {
   ROAD_Y: 0.12,        // 道路の面の高さ(地表から)
   JR_COL: 2.5,         // 柱が JR 等の線路の中心から離れるべき距離[m]
   STOP_FIT: 1.0,       // 編成の両端とホームの端の余裕[m]
+  GIRDER: 2.4,         // 標準の RC 桁(縦梁・横梁)の下端:レール面からの深さ[m]
+  DECK_DROP: 0.55, THRU_FLOOR: 1.05,   // 下路桁:床版の上面(レール面−0.55)から床組の下端まで[m]
+  THRU_SPAN: 34,       // これを超える径間は下路桁(鋼)にする[m]
   CROSS: 45,           // 「線路を横切る道路」とみなす角度[°](道路の面の主軸と線路の接線。これ未満は線路に沿う道路=別線の用地)
 };
 
@@ -73,7 +77,9 @@ const grade = (s) => (X.railY(s + 5) - X.railY(s - 5)) / 10;
 }
 
 /* ---- 4. JR 等の線路の上の桁下の離隔 ---- */
-const bottom = (s) => X.railY(s) - X.DECK_DROP - X.GIRDER;     // 桁の下端(7章の DECK_BOT と同じ考え方)
+// 桁の下端:標準の RC 桁は縦梁・横梁の下端(レール面−GIRDER)、下路桁の径間は床組の下端(床版の上面−THRU_FLOOR)
+const inThru = (s) => X.VIA_THRU.some((q) => s > q.s0 && s < q.s1);
+const bottom = (s) => inThru(s) ? X.railY(s) - REF.DECK_DROP - REF.THRU_FLOOR : X.railY(s) - REF.GIRDER;
 {
   let cmin = Infinity, at = null, n = 0;
   if (X.GSR) for (const L of X.GSR.rails) for (let i = 0; i < L.length - 1; i++) {
@@ -126,6 +132,16 @@ const bottom = (s) => X.railY(s) - X.DECK_DROP - X.GIRDER;     // 桁の下端(7
   }
   ok('JR 等の線路の上の柱', nC > 0 && nJ === 0, '0本(中心から ' + REF.JR_COL + 'm 以内)', nJ + '本' + (eJ ? '(' + eJ + ')' : '') + ' / 柱 ' + nC + '本');
   ok('線路を横切る道路の上の柱(事業区間)', nR === 0, '0本', nR + '本' + (eR ? '(' + eR + ')' : ''));
+}
+
+/* ---- 6b. 長い径間は下路桁 ---- */
+{
+  const P = X.PIERS.slice().sort((a, b) => a - b); let bad = null, n = 0;
+  for (let i = 1; i < P.length; i++) {
+    if (P[i] - P[i - 1] <= REF.THRU_SPAN) continue; n++;
+    if (!X.VIA_THRU.some((q) => Math.abs(q.s0 - P[i - 1]) < 0.01 && Math.abs(q.s1 - P[i]) < 0.01) && !bad) bad = P[i - 1].toFixed(0) + '〜' + P[i].toFixed(0);
+  }
+  ok('径間 ' + REF.THRU_SPAN + 'm 超は下路桁', bad === null, '全て', bad ? bad + ' が RC 桁' : n + '径間(下路桁 ' + X.VIA_THRU.length + '径間)');
 }
 
 /* ---- 7. 品川の停止位置と編成の長さ ---- */

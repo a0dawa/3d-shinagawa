@@ -572,7 +572,7 @@ const RAW={
  //   → 品川は国道15号の路面(TP約6m)とほぼ同じ高さの地平ホーム(TP6.3)→ 32‰で下り、掘割を経てトンネル(泉岳寺方)へ
  prof:[
   [-646,9.0],
-  [263.6,9.0],             // 上り勾配の始まり(新馬場方の道路の桁下 4.7m を確保できる位置。2026-10-30 に 30m 南へ)
+  [293.6,9.0],
   [563.6,14.4],
   [890.6,14.4],
   [1207.6,3.3],
@@ -2181,6 +2181,13 @@ CUR=null;
 const VIA={CH:240, SPAN:10, BLOCK:30, CANT:1.6, BEAM_IN:2.0, BW:0.8, COL_R:0.48,
            PAR:2.1, PAR_T:0.24, SLAB:0.40, TIP:0.25, LOW:4.4, TIE:0.625, LOD:460};
 const VIA_COLS=[];        // 柱の列の登録簿 {s, offs:[...], top}(検証用)
+/* 下路桁(品川版。v1 から移植):径間が THRU.SPAN を超える所、または標準の桁(下端=レール面−GIRDER)では JR 等の線路の
+   桁下 THRU.JR・道路の桁下 THRU.ROAD を取れない径間は、鋼製の下路桁にする。主桁は桁の両外側に立つ鋼板の桁(腹板+上下の
+   フランジ+垂直補剛材)で、床は横桁と縦桁の床組(厚さ THRU.FLOOR。床版の上面からその下端まで)。八ツ山跨線線路橋など */
+const THRU={SPAN:34, JR:6.0, ROAD:4.7, FLOOR:1.05, OUT:0.30, COL:0x62798a};
+const VIA_THRU=[];        // 下路桁の径間の登録簿 {s0,s1,h}(検証用)
+const inThru=s=>VIA_THRU.some(q=>s>q.s0&&s<q.s1);
+const thruBot=s=>railY(s)-DECK_DROP-THRU.FLOOR;   // 下路桁の床組の下端
 const VIA_CH=[];          // 区画 {s0,s1,mg,md,ties:[]}(6章の道床もここへ積む)
 for(let a=DOM.x0;a<DOM.x1-0.5;a+=VIA.CH)
   VIA_CH.push({s0:a,s1:Math.min(DOM.x1,a+VIA.CH),mg:MG(),md:MG(),ties:[],fast1:[],fast2:[],wl:[],wd:[]});
@@ -2203,31 +2210,6 @@ function parSect(s,sg){
   return P.map(q=>[sg*q[0],q[1]]);
 }
 {
-  const PC=[0xd6d8da,0xcfd2d5,0xdcdee0,0xe3e5e7,0xdcdee0,0xcfd2d5,0xc9cdd2,0xd0d3d6,0xd9dcdf,0xa9adb2,0xa9adb2];
-  for(const C of VIA_CH){
-    const a=C.s0, b=Math.min(C.s1,DECK_END); if(b-a<0.5) continue;
-    // 古い区間との境で色を切り替える(区切りで分けて掃引する)
-    const cuts=[a,b]; for(const v of[PS0]) if(v>a&&v<b) cuts.push(v);
-    cuts.sort((p,q)=>p-q);
-    for(let k=0;k<cuts.length-1;k++){
-      const s0=cuts[k], s1=cuts[k+1], m=(s0+s1)/2, cc=h=>viaCol(m,h);
-      // 床版:上面・張出しの下面・縦梁の間の下面
-      C.mg.loft(VD,s0,s1,s=>{const E=deckHalf(s),Eb=E-VIA.CANT,yT=railY(s)-DECK_DROP;
-        return [[-E,yT-VIA.TIP],[-Eb,yT-VIA.SLAB],[Eb,yT-VIA.SLAB],[E,yT-VIA.TIP],[E,yT],[-E,yT]];},
-        {closed:true,tol:0.01,cols:[cc(0xb3b8bd),cc(0xa9aeb3),cc(0xb3b8bd),cc(0xc4c8cd),cc(0xbfc3c7),cc(0xc4c8cd)],tag:'床版'});
-      // 高欄(両側)
-      for(const sg of[-1,1])
-        C.mg.loft(VD,s0,s1,s=>parSect(s,sg),{closed:true,tol:0.01,cols:PC.map(cc),tag:'高欄'});
-      // 縦梁(両側)。上面は床版の中なので作らない
-      for(const sg of[-1,1])
-        C.mg.col(cc(0xbcc1c6)).loft(VD,s0,s1,s=>{const o=sg*(deckHalf(s)-VIA.BEAM_IN),yT=railY(s)-DECK_DROP,bt=viaBot(s);
-          return [[o-VIA.BW/2,yT-VIA.SLAB],[o-VIA.BW/2,bt],[o+VIA.BW/2,bt],[o+VIA.BW/2,yT-VIA.SLAB]];},{side:1,tag:'縦梁'});
-      // ケーブルトラフ(高欄の内側。蓋の目地は近くだけ)
-      for(const sg of[-1,1])
-        C.md.col(cc(0xb7bbc0)).loft(VD,s0,s1,s=>{const E=deckHalf(s),yT=railY(s)-DECK_DROP,i=E-VIA.PAR_T;
-          return [[sg*(i-0.46),yT],[sg*(i-0.46),yT+0.26],[sg*i,yT+0.26]];},{side:sg>0?-1:1,tag:'ケーブルトラフ'});
-    }
-  }
   // 柱と横梁:10m間隔。高架下に道路・鉄道・河川・駅舎がある位置には立てない(ROAD_SKIP)
   const s0=Math.ceil((DOM.x0+3-5)/VIA.SPAN)*VIA.SPAN+5;
   const colOK=s=>railY(s)>VIA.LOW&&!ROAD_SKIP.some(rr=>Math.abs(s-rr[0])<rr[1]-1e-6)&&!!VIA_CH.find(q=>s>=q.s0&&s<q.s1);
@@ -2241,6 +2223,42 @@ function parSect(s,sg){
        if(e>a+4&&e<b-4&&colOK(e)&&!add.some(q=>Math.abs(q-e)<4)) add.push(e);}
    for(const e of add){ for(let k=SL.length-1;k>=0;k--) if(Math.abs(SL[k]-e)<4) SL.splice(k,1); SL.push(e); }
    SL.sort((p,q)=>p-q);}
+  // 下路桁の径間:長い径間と、標準の桁では JR 等の線路・道路の上の桁下が足りない径間
+  for(let i=1;i<SL.length;i++){
+    const a=SL[i-1], b=SL[i]; let need=b-a>THRU.SPAN;
+    for(let q=a+1;q<b&&!need;q+=2){
+      const bt=railY(q)-GIRDER, hw=deckHalf(q);
+      for(let o=-hw;o<=hw&&!need;o+=2){ const f=frame(q,o), g=terH(f.x,f.z);
+        if(GSR&&jrNear(f.x,f.z,2.0)&&bt-(g+0.46)<THRU.JR) need=true;
+        if(roadHit(f.x,f.z,0)&&bt-(g+0.12)<THRU.ROAD) need=true; }
+    }
+    if(need) VIA_THRU.push({s0:a, s1:b, h:clamp((b-a)/20,1.8,3.6)});   // 主桁の高さ(床版の上面から。v1 と同じ)
+  }
+  const PC=[0xd6d8da,0xcfd2d5,0xdcdee0,0xe3e5e7,0xdcdee0,0xcfd2d5,0xc9cdd2,0xd0d3d6,0xd9dcdf,0xa9adb2,0xa9adb2];
+  for(const C of VIA_CH){
+    const a=C.s0, b=Math.min(C.s1,DECK_END); if(b-a<0.5) continue;
+    // 古い区間との境で色を切り替える(区切りで分けて掃引する)
+    const cuts=[a,b]; for(const v of[PS0].concat(...VIA_THRU.map(q=>[q.s0,q.s1]))) if(v>a&&v<b) cuts.push(v);
+    cuts.sort((p,q)=>p-q);
+    for(let k=0;k<cuts.length-1;k++){
+      const s0=cuts[k], s1=cuts[k+1], m=(s0+s1)/2, cc=h=>viaCol(m,h), thru=inThru(m);
+      // 床版:上面・張出しの下面・縦梁の間の下面
+      C.mg.loft(VD,s0,s1,s=>{const E=deckHalf(s),Eb=E-VIA.CANT,yT=railY(s)-DECK_DROP;
+        return [[-E,yT-VIA.TIP],[-Eb,yT-VIA.SLAB],[Eb,yT-VIA.SLAB],[E,yT-VIA.TIP],[E,yT],[-E,yT]];},
+        {closed:true,tol:0.01,cols:[cc(0xb3b8bd),cc(0xa9aeb3),cc(0xb3b8bd),cc(0xc4c8cd),cc(0xbfc3c7),cc(0xc4c8cd)],tag:'床版'});
+      // 高欄(両側)
+      for(const sg of[-1,1])
+        C.mg.loft(VD,s0,s1,s=>parSect(s,sg),{closed:true,tol:0.01,cols:PC.map(cc),tag:'高欄'});
+      // 縦梁(両側)。上面は床版の中なので作らない
+      for(const sg of[-1,1])
+        C.mg.col(thru?THRU.COL:cc(0xbcc1c6)).loft(VD,s0,s1,s=>{const o=sg*(deckHalf(s)-VIA.BEAM_IN),yT=railY(s)-DECK_DROP,bt=thru?thruBot(s):viaBot(s);   // 下路桁の径間は鋼の縦桁(床組)
+          return [[o-VIA.BW/2,yT-VIA.SLAB],[o-VIA.BW/2,bt],[o+VIA.BW/2,bt],[o+VIA.BW/2,yT-VIA.SLAB]];},{side:1,tag:'縦梁'});
+      // ケーブルトラフ(高欄の内側。蓋の目地は近くだけ)
+      for(const sg of[-1,1])
+        C.md.col(cc(0xb7bbc0)).loft(VD,s0,s1,s=>{const E=deckHalf(s),yT=railY(s)-DECK_DROP,i=E-VIA.PAR_T;
+          return [[sg*(i-0.46),yT],[sg*(i-0.46),yT+0.26],[sg*i,yT+0.26]];},{side:sg>0?-1:1,tag:'ケーブルトラフ'});
+    }
+  }
   for(const s of SL){
     const C=VIA_CH.find(q=>s>=q.s0&&s<q.s1);
     const E=deckHalf(s), Ob=E-VIA.BEAM_IN, y=railY(s), yT=y-DECK_DROP, bt=viaBot(s);
@@ -2260,6 +2278,30 @@ function parSect(s,sg){
         .tube(VD,[A.f.x,yT-VIA.TIP,A.f.z],[B.f.x,yT-VIA.SLAB-0.2,B.f.z],0.08,6)
         .tube(VD,[B.f.x,yT-VIA.SLAB-0.2,B.f.z],[B.f.x,0.25,B.f.z],0.08,6);
     }
+  }
+  // 下路桁:両外側の主桁(腹板・上下のフランジ・垂直補剛材・端の支点上の補剛材)と、床組の横桁
+  for(const T of VIA_THRU){
+    const yT=s=>railY(s)-DECK_DROP, top=s=>yT(s)+T.h, bot=s=>thruBot(s)-0.25, go=(s,sg)=>sg*(deckHalf(s)+THRU.OUT);
+    viaEach(T.s0,T.s1,(C,a,b)=>{
+      for(const sg of[-1,1]){
+        C.mg.col(THRU.COL).loft(VD,a,b,s=>{const o=go(s,sg);return [[o-0.03,bot(s)],[o+0.03,bot(s)],[o+0.03,top(s)],[o-0.03,top(s)]];},
+          {closed:true,caps:true,tag:'下路桁'});                                                     // 腹板
+        for(const yy of[top,bot]) C.mg.col(0x56697a).loft(VD,a,b,s=>{const o=go(s,sg),y=yy(s);
+          return [[o-0.30,y-0.04],[o+0.30,y-0.04],[o+0.30,y+0.04],[o-0.30,y+0.04]];},{closed:true,caps:true});   // 上下のフランジ
+      }
+    });
+    const n=Math.max(2,Math.round((T.s1-T.s0)/2.5));
+    for(let k=0;k<=n;k++){
+      const q=T.s0+(T.s1-T.s0)*k/n, C=VIA_CH.find(c=>q>=c.s0&&q<c.s1)||VIA_CH[VIA_CH.length-1], end=(k===0||k===n);
+      for(const sg of[-1,1]){                                                                         // 垂直補剛材(外と内)
+        const o=go(q,sg);
+        C.md.col(0x56697a).box(VD,q,o+sg*0.12,bot(q),top(q),end?0.40:0.14,0.24,{skip:'-y'});
+        C.md.col(0x56697a).box(VD,q,o-sg*0.10,bot(q),top(q),end?0.40:0.12,0.20,{skip:'-y'});
+      }
+      C.mg.col(THRU.COL).box(VD,q,0,thruBot(q),yT(q)-VIA.SLAB,0.30,2*(deckHalf(q)+THRU.OUT),{skip:'+y',tag:'下路桁の横桁'});
+    }
+    STRUCT.push({tag:'下路桁', s0:T.s0, s1:T.s1, o0:-(deckHalf(T.s0)+THRU.OUT+0.3), o1:deckHalf(T.s0)+THRU.OUT+0.3,
+                 y0:bot(T.s0), y1:top(T.s0)});
   }
   // 継目(30mごと):高欄の外面と笠木・地覆に目地
   for(let s=Math.ceil(DOM.x0/VIA.BLOCK)*VIA.BLOCK;s<DECK_END;s+=VIA.BLOCK){
