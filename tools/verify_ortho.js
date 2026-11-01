@@ -29,7 +29,7 @@ const REF = {
   URL: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/', HOST: /cyberjapandata\.gsi\.go\.jp/,
   Z: [18, 16, 14],          // 近・中・遠の段
   SZ: 128, N: 512,          // 正射影で描く範囲[m]と画素(0.25m/画素=近の写真の約半画素)
-  P: [[2500, 130], [5600, -160]],   // 描く所 (s, off):線路の帯から 100m 以上離れた所
+  P: [[400, 160], [1600, -180]],    // 描く所 (s, off):線路の帯から 100m 以上離れた所(品川版:新馬場〜北品川の東・品川の北の西)
   MEAN: 2.0, SHIFT: 3,      // 平均の差[/255]・ずらしを探す範囲[画素]
   BAND_IN: 3.6, BAND_OUT: 6.7,   // 帯の印:構造物の半幅からこの内は写真なし・この外は写真(⑦と同じ)
   ON_DIFF: 6,               // 駅の俯瞰で ON と OFF の平均の差の下限[/255]
@@ -85,7 +85,7 @@ async function openPage(b, offline) {
   return { p, ctx, errs };
 }
 
-/* 駅の俯瞰(measure_load の「駅俯瞰 明大前」と同じ視点)で ON/OFF を描いて画素と出典・水面を返す */
+/* 駅の俯瞰(measure_load の「駅俯瞰 品川」と同じ視点)で ON/OFF を描いて画素と出典・水面を返す */
 const STATION_VIEW = async (R) => {
   CINE.begin(); renderer.setPixelRatio(1); renderer.setSize(800, 450, false); camera.aspect = 800 / 450; camera.updateProjectionMatrix();
   const st = STA[2], q = frame(st.x, 0);
@@ -203,14 +203,18 @@ const STATION_VIEW = async (R) => {
           }
         }
         // (A2) 帯の印:線路をまたいで描く(全部の段)。構造物の半幅+BAND_IN の内は黒(写真なし)、+BAND_OUT の外は写真どおり
-        const sB = (STA[5].x + STA[6].x) / 2, QB = frame(sB, 0);
+        const sB = (STA[0].x + STA[1].x) / 2, QB = frame(sB, 0);   // 品川版:新馬場〜北品川の高架の中ほど
         await settleAt(QB);
         const pb = draw(QB, null), eb = await expect(QB, R.Z[0]);
         let nIn = 0, inBad = 0, inMax = 0, nOut = 0, outSum = 0;
         for (let r = 0; r < N; r++) for (let i = 0; i < N; i++) {
           const q = prjXY(wx(QB, i), wz(QB, r)), sg = q.off < 0 ? -1 : 1, hw = q.s > DECK_END ? cutHalf(q.s, sg) : deckHalf(q.s), a = Math.abs(q.off), k = (r * N + i) * 4, e = (r * N + i) * 3;
           if (a <= hw + R.BAND_IN) { nIn++; const v = Math.max(pb[k], pb[k + 1], pb[k + 2]); inMax = Math.max(inMax, v); if (v > 3) inBad++; }
-          else if (a >= hw + R.BAND_OUT) { nOut++; for (let c = 0; c < 3; c++) outSum += Math.abs(pb[k + c] - eb[e + c]); }
+          else if (a >= hw + R.BAND_OUT) {
+            // 品川版:帯に掛かって外した実際の建物の足跡+1m も写真を使わない(ORTHO_HOLES)。その近く(+1m+移り変わり 3.1m)は比べない
+            const hx = wx(QB, i), hz = wz(QB, r);
+            if (ORTHO_HOLES.some((P) => polyDist(P, hx, hz) < 1.0 + (R.BAND_OUT - R.BAND_IN))) continue;
+            nOut++; for (let c = 0; c < 3; c++) outSum += Math.abs(pb[k + c] - eb[e + c]); }
         }
         out.push({ band: true, s: Math.round(sB), nIn: nIn, inBad: inBad, inMax: inMax, nOut: nOut, outMean: outSum / Math.max(1, nOut * 3) });
         T0.dispose();

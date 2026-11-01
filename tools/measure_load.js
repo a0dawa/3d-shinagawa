@@ -92,8 +92,8 @@ function findChromium() {
     const out = [];
     // 1) 全体俯瞰(初期視点)
     out.push(await measure('全体俯瞰', () => { Object.assign(cam, OV); applyCam(); }));
-    // 2) 駅の俯瞰(駅ボタンと同じ視点)。2面4線の明大前と、相対式の芦花公園
-    for (const i of [2, 7]) {
+    // 2) 駅の俯瞰(駅ボタンと同じ視点)。品川版:2面4線の品川(STA[2])と、相対式の北品川(STA[1])
+    for (const i of [2, 1]) {
       const st = STA[i];
       out.push(await measure('駅俯瞰 ' + st.n, () => {
         const q = frame(st.x, 0);
@@ -109,13 +109,13 @@ function findChromium() {
       camera.up.set(0, 1, 0); camera.position.set(q.x, y, q.z); camera.lookAt(q.x + tx * 200, y, q.z + tz * 200);
       cam.tx = q.x; cam.tz = q.z;
     };
-    out.push(await measure('運転 明大前の手前', drive(STA[2].x - 250)));
-    out.push(await measure('運転 千歳烏山の手前', drive(STA[8].x - 250)));
-    out.push(await measure('運転 駅間(上北沢〜八幡山)', drive((STA[5].x + STA[6].x) / 2)));
-    out.push(await measure('運転 ホーム上(桜上水)', drive(STA[4].x - 60)));
+    out.push(await measure('運転 品川の手前', drive(STA[2].x - 250)));
+    out.push(await measure('運転 北品川の手前', drive(STA[1].x - 250)));
+    out.push(await measure('運転 駅間(北品川〜品川・八ツ山)', drive((STA[1].x + STA[2].x) / 2)));
+    out.push(await measure('運転 ホーム上(品川)', drive(STA[2].x - 60)));
     // 4) 列車追尾に近い中景(高架を斜め上から150m)
-    out.push(await measure('中景 下高井戸', () => {
-      const st = STA[3], q = frame(st.x + 260, 0);
+    out.push(await measure('中景 新馬場', () => {
+      const st = STA[0], q = frame(st.x + 260, 0);
       camera.up.set(0, 1, 0);
       camera.position.set(q.x + 90, railY(st.x) + 60, q.z + 110);
       camera.lookAt(q.x, railY(st.x), q.z); cam.tx = q.x; cam.tz = q.z;

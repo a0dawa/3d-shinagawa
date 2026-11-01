@@ -4782,6 +4782,28 @@ if(PLB){
   // 公園・緑地・山林の木
   // 帯の外(道路の登録簿も無い)には植えない
   for(const t of PARK){const q=prjXY(t[0],t[1]); if(q.s<DOM.x0||q.s>DOM.x1||Math.abs(q.off)>DOM.z) continue; put(q.s,q.off,t[2],t[3]===2?0x5f8a4e:(Math.random()<.5?0x7fa268:0x6f9160),'公園');}
+  /* 目黒川の桜並木(品川版。京王版の上北沢の桜並木の代わり):新馬場の付近で線路と交わる目黒川(LM.meguro の 600m 以内の水面)の
+     両岸に、水面の縁から 2.6m 外へ 9m ごとに植える。位置は国土地理院の水面の縁から求める(実際の木の位置ではない。推定) */
+  { const m=LM.meguro, inW=(x,z)=>LU.water.some(W=>x>W.bb[0]-1&&x<W.bb[1]+1&&z>W.bb[2]-1&&z<W.bb[3]+1&&polyDist(W.P,x,z)<0.8);
+    for(const W of LU.water){
+      if(!W.P.some(p=>{const q=prjXY(p[0],p[1]);return Math.abs(q.s-m.s)<600&&Math.abs(q.off)<600;})) continue;
+      let A=0; for(let k=0;k<W.P.length;k++){const a=W.P[k],b=W.P[(k+1)%W.P.length];A+=a[0]*b[1]-b[0]*a[1];}
+      if(Math.abs(A)/2<1000) continue;                                   // 細かい水面の片は除く
+      let acc=4.5;
+      for(let k=0;k<W.P.length;k++){
+        const a=W.P[k], b=W.P[(k+1)%W.P.length], L=Math.hypot(b[0]-a[0],b[1]-a[1]); if(L<1e-6) continue;
+        const nx=(b[1]-a[1])/L, nz=-(b[0]-a[0])/L;
+        for(;acc<L;acc+=9){
+          const x=a[0]+(b[0]-a[0])*acc/L, z=a[1]+(b[1]-a[1])*acc/L;
+          for(const sg of[1,-1]){ const tx=x+sg*nx*2.6, tz=z+sg*nz*2.6;
+            if(polyDist(W.P,tx,tz)<=0||inW(tx,tz)) continue;              // 外側だけ(ほかの水面の中も除く)
+            const q=prjXY(tx,tz); if(q.s<DOM.x0||q.s>DOM.x1||Math.abs(q.off)>DOM.z) continue;
+            put(q.s,q.off,0.75,0xecb8cd,'桜',1.5); break; }
+        }
+        acc-=L;
+      }
+    }
+  }
   let guard=0;
   while(i<N&&guard++<N*40){
     const x=DOM.x0+Math.random()*(DOM.x1-DOM.x0),z=(Math.random()*2-1)*DOM.z;

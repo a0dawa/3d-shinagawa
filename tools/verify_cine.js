@@ -288,8 +288,10 @@ const TPROP = {};
       for (const [k, m] of ent) { const paint = /^(logo|plate|fnum|sheet)/.test(k), led = /^(led|sled)/.test(k);
         if (paint && (m.type === 'basic' || !m.userData.staLit)) bad2.push(k + '=光る'); if (led && m.type !== 'basic') bad2.push(k + '=照明を受ける'); }
       const nL = ent.filter(([k]) => /^sheet9c/.test(k)).length, nS = ent.filter(([k]) => /^sheet/.test(k)).length;
-      ok('ロゴ・車番は光らない(表示器は光る)', bad2.length === 0 && nL > 0 && nS >= 80, 'ロゴ・車番(1両1枚)=照明を受ける・表示器=光る',
-        bad2.length ? bad2.slice(0, 3).join(' ') : ent.length + '枚(シート ' + nS + '・9000系の先頭車 ' + nL + ')');
+      // シートは1両1枚。品川版は走る車両の数(4本×8両)と比べる(京王版は 80 枚以上=7本×10両+留置)
+      const nCars = X.trains.reduce((a, t) => a + t.cars.length, 0);
+      ok('ロゴ・車番は光らない(表示器は光る)', bad2.length === 0 && nL > 0 && nS >= nCars, 'ロゴ・車番(1両1枚)=照明を受ける・表示器=光る',
+        bad2.length ? bad2.slice(0, 3).join(' ') : ent.length + '枚(シート ' + nS + '・2100形の先頭車 ' + nL + ')');
     }
   }
   /* 駅部は夜に強く照らされている(利用者指示:もっともっと明るい)。駅の結合ジオメトリの発光は
@@ -335,7 +337,7 @@ const TPROP = {};
     ok('夜は樹木が暗い', dark === dayT.length, dayT.length + '本すべて', dark + '本');
     /* 実データの緑地(公園・農地・山林。LU.mat)も季節で塗り替わり、夜は暗くなること(地表と同じ扱い。
        片方だけ塗ると、冬の地表に夏の芝生の公園が残る) */
-    if (X.LU && X.LU.tint) {
+    if (X.LU && X.LU.tint && X.LU.geos && X.LU.geos.length) {
       let bad = null;
       for (const se of C.seasons) {
         // 描かれた緑の頂点の色そのもの(LU.col ではなく、ジオメトリの color 属性)で見る
@@ -492,7 +494,7 @@ const TPROP = {};
     F.petal.n + ' / ' + F.snow.n);
 
   // 粒の置き方:カメラの周り BOX 四方に収まり、時間で落ち、同じ時刻なら同じ位置
-  const S0 = C.stations[3];
+  const S0 = C.stations[Math.min(3, C.stations.length - 1)];   // 品川版は3駅(京王版の4番目の駅の代わりに最後の駅)
   const at = (o, t, camS) => {
     C.shotFront(camS);
     o.p.visible = true; F.update(t);
@@ -616,7 +618,7 @@ const TPROP = {};
     ['si', 'hi', 'fn', 'ff', 'gnd', 'sky'].filter((k) => o1[k] !== o2[k]).join('・') || '一致');
   C.setTime('noon');
   // 雨の粒
-  const R = F.rain, S0 = C.stations[4];
+  const R = F.rain, S0 = C.stations[Math.min(4, C.stations.length - 1)];   // 品川版は3駅
   const rat = (t) => { C.shotFront(S0.x); F.update(t); return { pos: Float32Array.from(R.pos.subarray(0, R.n * 6)), cam: { x: X.camera.position.x, y: X.camera.position.y, z: X.camera.position.z } }; };
   C.setWeather('rain'); const nRain = R.n;
   const a = rat(20), b = rat(20 + 1 / 12), a2 = rat(20);
@@ -686,9 +688,9 @@ const TPROP = {};
    同じ線路に別の列車が重ならないこと。 */
 {
   const SHOT = 10, DT = 1 / 12, MOVE = 80;    // カットの長さ[秒]・最低限の動き[m](検証側の値)
-  // 特急の停車駅(京王の特急。この区間内)。それ以外の駅では、撮影の到着は「通過」になる(止まらずに駅を抜ける)
-  const EXP_STOPS = ['笹塚', '明大前', '千歳烏山'];
-  const stopsHere = (t, st) => !t.kind || t.kind === '各停' || EXP_STOPS.indexOf(st.n) >= 0;
+  // 品川版:快特の停車駅は品川だけ(推定の模式)。それ以外の駅では、撮影の到着は「通過」になる(止まらずに駅を抜ける)
+  const EXP_STOPS = ['品川'];
+  const stopsHere = (t, st) => !t.kind || t.kind === '普通' || EXP_STOPS.indexOf(st.n) >= 0;
   let badA = null, badD = null, badO = null, n = 0, nPass = 0;
   for (let i = 0; i < X.STA.length; i++) for (const dir of [1, -1]) {
     const nm = X.STA[i].n + (dir > 0 ? '下り' : '上り');
@@ -700,11 +702,13 @@ const TPROP = {};
     const movedA = (t.x - x0) * dir;
     let stopped = false;
     const pass = !stopsHere(t, X.STA[i]), stopS0 = X.stopPosOf(X.STA[i], dir) - dir * X.CAR_HALF;
-    for (let k = 0; k < 20 / DT && !stopped; k++) { C.step(DT); if (t.st === 'dwell') stopped = t.atSt === X.STA[i]; }
+    // 品川版:駅が線路の端に近い(新馬場)ので、通過した列車は 20秒のうちに線路の端の先で入り直すことがある。一度でも停止位置を越えたかで見る
+    let beyond = (t.x - stopS0) * dir > 0;
+    for (let k = 0; k < 20 / DT && !stopped; k++) { C.step(DT); if (t.st === 'dwell') stopped = t.atSt === X.STA[i]; if (t.st !== 'wait' && (t.x - stopS0) * dir > 0 && (t.x - stopS0) * dir < 600) beyond = true; }
     if (!(movedA >= MOVE)) badA = badA || nm + ' 動きが小さい ' + movedA.toFixed(0) + 'm';
     else if (pass) {                              // 通過駅:止まらず、停止位置を越えて駅を抜ける
       nPass++;
-      if (stopped || !((t.x - stopS0) * dir > 0)) badA = badA || nm + '(通過駅) ' + (stopped ? '止まった' : '駅を抜けない');
+      if (stopped || !beyond) badA = badA || nm + '(通過駅) ' + (stopped ? '止まった' : '駅を抜けない');
     } else if (!stopped) badA = badA || nm + ' その駅に止まらない';
     for (const q of X.trains) if (q !== t && q.dir === dir && Math.abs(q.x - t.x) < 300)
       badO = badO || nm + ' 2本が重なる';
