@@ -2196,9 +2196,46 @@ const VIA_COLS=[];        // 柱の列の登録簿 {s, offs:[...], top}(検証�
 /* 下路桁(品川版。v1 から移植):径間が THRU.SPAN を超える所、または標準の桁(下端=レール面−GIRDER)では JR 等の線路の
    桁下 THRU.JR・道路の桁下 THRU.ROAD を取れない径間は、鋼製の下路桁にする。主桁は桁の両外側に立つ鋼板の桁(腹板+上下の
    フランジ+垂直補剛材)で、床は横桁と縦桁の床組(厚さ THRU.FLOOR。床版の上面からその下端まで)。八ツ山跨線線路橋など */
-const THRU={SPAN:34, JR:6.0, ROAD:4.7, FLOOR:1.05, OUT:0.30, COL:0x62798a};
+const THRU={SPAN:34, JR:6.0, ROAD:4.7, FLOOR:1.05, OUT:0.30, COL:0x62798a,
+            TRUSS_H:8.8, TRUSS_COL:0x8c959d, PANEL:7.5};   // 下路トラスの主構の高さの下限(上横構の下端が架線柱の頂部 POLE_TOP より上)・色・格間長の目安(推定)
 const VIA_THRU=[];        // 下路桁の径間の登録簿 {s0,s1,h}(検証用)
 const inThru=s=>VIA_THRU.some(q=>s>q.s0&&s<q.s1);
+/* 下路トラス(八ツ山跨線々路橋。東京都の架設写真:両側の主構+上横構。形式・寸法は推定):
+   主構=下弦材(床組の下端の高さ)・上弦材(端の格間は斜めの端柱)・垂直材・斜材(ワーレン。格間ごとに向きを替える)、
+   上横構=上弦の格点を結ぶ横材と X 形の斜材(線路の上。下端はレール面+7.7m 以上=架線柱の頂部より上)、端の門構、床組の横桁 */
+function thruTruss(T,yT,top,bot,go){
+  const L=T.s1-T.s0, n=Math.max(4,Math.round(L/THRU.PANEL)), P=k=>T.s0+L*k/n, col=THRU.TRUSS_COL, dk=0x6f7880;
+  const W=(C,q,o,y)=>{const f=frame(q,o);return [f.x,y,f.z];};
+  const chunk=q=>VIA_CH.find(c=>q>=c.s0&&q<c.s1)||VIA_CH[VIA_CH.length-1];
+  const upY=(k)=>(k===0||k===n)?bot(P(k))+0.3:top(P(k));          // 端の格点は下弦の高さ(端柱が斜めに上がる)
+  for(const sg of[-1,1]){
+    viaEach(T.s0,T.s1,(C,a,b)=>{                                       // 下弦材(箱形)
+      C.mg.col(col).loft(VD,a,b,s=>{const o=go(s,sg);return [[o-0.30,bot(s)],[o+0.30,bot(s)],[o+0.30,bot(s)+0.70],[o-0.30,bot(s)+0.70]];},{closed:true,caps:true,tag:'下路トラス'});
+    });
+    for(let k=0;k<n;k++){                                               // 上弦材・端柱(格間ごとの直材)
+      const a=P(k), b=P(k+1), C=chunk((a+b)/2);
+      C.mg.col(col).tube(VD,W(C,a,go(a,sg),upY(k)),W(C,b,go(b,sg),upY(k+1)),0.32,6);
+    }
+    for(let k=1;k<n;k++){ const q=P(k), C=chunk(q);                       // 垂直材
+      C.mg.col(col).tube(VD,W(C,q,go(q,sg),bot(q)+0.6),W(C,q,go(q,sg),top(q)),0.20,6); }
+    for(let k=0;k<n;k++){                                               // 斜材(ワーレン:格間ごとに向きを替える)
+      const a=P(k), b=P(k+1), C=chunk((a+b)/2), up=(k%2===0);
+      if(k===0||k===n-1) continue;                                      // 端の格間は端柱が兼ねる
+      const p0=up?W(C,a,go(a,sg),bot(a)+0.6):W(C,a,go(a,sg),upY(k)), p1=up?W(C,b,go(b,sg),upY(k+1)):W(C,b,go(b,sg),bot(b)+0.6);
+      C.mg.col(col).tube(VD,p0,p1,0.22,6);
+    }
+    STRUCT.push({tag:'下路トラス', s0:T.s0, s1:T.s1, o0:go(T.s0,sg)-0.35, o1:go(T.s0,sg)+0.35, y0:bot(T.s0), y1:top(T.s0)+0.35});
+  }
+  for(let k=1;k<n;k++){                                                 // 上横構:横材と X 形の斜材(線路の上)
+    const q=P(k), C=chunk(q), y=top(q)-0.15;
+    C.mg.col(dk).tube(VD,W(C,q,go(q,-1),y),W(C,q,go(q,1),y),0.16,6);
+    if(k<n-1){ const r=P(k+1), y2=top(r)-0.15;
+      C.md.col(dk).tube(VD,W(C,q,go(q,-1),y),W(C,r,go(r,1),y2),0.08,4).tube(VD,W(C,q,go(q,1),y),W(C,r,go(r,-1),y2),0.08,4); }
+    STRUCT.push({tag:'下路トラスの上横構', s0:q-0.2, s1:q+0.2, o0:go(q,-1), o1:go(q,1), y0:y-0.16, y1:y+0.16});
+  }
+  for(let k=0;k<=n;k++){ const q=P(k), C=chunk(q);                       // 床組の横桁
+    C.mg.col(THRU.COL).box(VD,q,0,thruBot(q),yT(q)-VIA.SLAB,0.30,2*(deckHalf(q)+THRU.OUT),{skip:'+y',tag:'下路桁の横桁'}); }
+}
 const thruBot=s=>railY(s)-DECK_DROP-THRU.FLOOR;   // 下路桁の床組の下端
 const VIA_CH=[];          // 区画 {s0,s1,mg,md,ties:[]}(6章の道床もここへ積む)
 for(let a=DOM.x0;a<DOM.x1-0.5;a+=VIA.CH)
@@ -2244,7 +2281,10 @@ function parSect(s,sg){
         if(GSR&&jrNear(f.x,f.z,2.0)&&bt-(g+0.46)<THRU.JR) need=true;
         if(roadHit(f.x,f.z,0)&&bt-(g+0.12)<THRU.ROAD) need=true; }
     }
-    if(need) VIA_THRU.push({s0:a, s1:b, h:clamp((b-a)/20,1.8,3.6)});   // 主桁の高さ(床版の上面から。v1 と同じ)
+    // JR 等の線路を跨ぐ径間は鋼製の下路トラス(八ツ山跨線々路橋。東京都の架設写真)、それ以外は鋼板の下路桁
+    let jr=false; for(let q=a+1;q<b&&!jr;q+=2){ const hw=deckHalf(q); for(let o=-hw;o<=hw&&!jr;o+=2){ const f=frame(q,o); if(GSR&&jrNear(f.x,f.z,2.0)) jr=true; } }
+    if(need) VIA_THRU.push({s0:a, s1:b, truss:jr,
+      h:jr?Math.max(THRU.TRUSS_H,(b-a)/8):clamp((b-a)/20,1.8,3.6)});   // 主構・主桁の高さ(床版の上面から)
   }
   const PC=[0xd6d8da,0xcfd2d5,0xdcdee0,0xe3e5e7,0xdcdee0,0xcfd2d5,0xc9cdd2,0xd0d3d6,0xd9dcdf,0xa9adb2,0xa9adb2];
   for(const C of VIA_CH){
@@ -2294,6 +2334,7 @@ function parSect(s,sg){
   // 下路桁:両外側の主桁(腹板・上下のフランジ・垂直補剛材・端の支点上の補剛材)と、床組の横桁
   for(const T of VIA_THRU){
     const yT=s=>railY(s)-DECK_DROP, top=s=>yT(s)+T.h, bot=s=>thruBot(s)-0.25, go=(s,sg)=>sg*(deckHalf(s)+THRU.OUT);
+    if(T.truss){ thruTruss(T,yT,top,bot,go); continue; }
     viaEach(T.s0,T.s1,(C,a,b)=>{
       for(const sg of[-1,1]){
         C.mg.col(THRU.COL).loft(VD,a,b,s=>{const o=go(s,sg);return [[o-0.03,bot(s)],[o+0.03,bot(s)],[o+0.03,top(s)],[o-0.03,top(s)]];},
@@ -3364,6 +3405,17 @@ const slatTex=texOf(32,8,function(c,w,h){
   c.fillStyle='#d8d2c9';c.fillRect(10,0,2,h);c.fillRect(26,0,2,h);
 });
 const MAT_BRICK=M(0xffffff,{map:brickTex,vertexColors:true});
+// 青海波(北品川の駅舎デザイン:端部のガラスの箱のパネル。東京都・京急の決定デザインのパース)。1こま=0.6m 角
+const seigaihaTex=texOf(128,128,function(c,w,h){
+  c.fillStyle='#bfe3f2'; c.fillRect(0,0,w,h);
+  const R0=w/4;
+  for(let row=-1;row<=4;row++) for(let k=-1;k<=4;k++){
+    const cx=k*w/2+(row%2?w/4:0), cy=row*h/4;
+    for(let r=R0;r>4;r-=R0/4){ c.beginPath(); c.arc(cx,cy+R0,r,Math.PI,2*Math.PI); c.closePath();
+      c.fillStyle=(Math.round((R0-r)/(R0/4))%2)?'#bfe3f2':'#2a6fa8'; c.fill(); }
+  }
+});
+const MAT_SEIGAIHA=M(0xffffff,{map:seigaihaTex,vertexColors:true});
 const MAT_LOUVER=M(0xffffff,{map:louverTex});
 const MAT_RIB=M(0xffffff,{map:ribTex,vertexColors:true});
 const MAT_STONE=M(0xffffff,{map:stoneTex,vertexColors:true});
@@ -3580,7 +3632,7 @@ const ROOF_DEF={
 };
 const ROOF_OF={};   // 駅ごとの屋根の形(既定以外)。品川版は無し
 // 鼻隠し・屋根の色(公表パース)。屋根の上面は立ハゼ
-const FAC_ROOF={'北品川':0xd8dcdf};   // 推定(公表パース未入手)
+const FAC_ROOF={'北品川':0x4a4f55};   // 鼻隠し:濃い灰(北品川の決定デザインのパース)
 // 折れ線 poly 上の off における高さ
 function polyAt(poly,o){
   if(o<=poly[0][0]) return poly[0][1];
@@ -3666,8 +3718,28 @@ function fFin(Sx,col,sx,sg,d,w,dep,y0,y1,tag){            // 外装の面から�
 }
 const uvW=(su,sv)=>(s,p)=>[s/su,p[1]/sv];                  // 鉛直な面の模様の UV
 const FAC={
-  /* 既定(北品川ほか。公表パース未入手のため推定):桁の側面は明るい灰、ホーム階はガラスの帯に
-     白い縦ルーバー(1.2m間隔)、軒先の下に京急の赤の細い帯 */
+  /* 北品川(令和8年6月決定の駅舎デザイン。東京都建設局のページのパース「海側・山側」):ホーム階は濃い灰の金属の枠。
+     腰(ホーム面〜+2.3m)に縦ルーバーの帯を2段、その上はガラス(方立 1.5m)。木の縦板(幅1.2m)を約9m ごと。
+     両端の 10m はガラスの箱で、中ほどに青海波のパネル。高架の側面は明るい灰。寸法はパースからの読み取り(推定) */
+  '北品川':function(S,st,sg,y){
+    const RL=staRoofHalf(st), a=st.x-RL+1, b=st.x+RL-1, yg=y-GIRDER, y0=y+FAC_Y0, y1=y+STD.FAS0, yL=y+2.3, BOX=10;
+    const DK=0x45494e, FR=0x5a5f65;
+    fBand(S.mg,SV,0xc4c7ca,a,b,sg,FD,0.2,yg,y0,{tag:'外装:高架の側面'});
+    fBand(S.mg,SV,DK,a+BOX,b-BOX,sg,FD,0.2,y0,y0+0.25,{tag:'外装:腰の枠'});
+    fGlass(S.mg,a,b,sg,FD-0.06,y0+0.25,y1,'外装:ガラス');
+    for(let s=a+BOX;s<b-BOX;s+=0.25) fFin(S.md,0x3d4146,s,sg,FD,0.05,0.12,y0+0.3,yL,'外装:縦ルーバー');   // 縦ルーバーの帯(近くだけ)
+    fBand(S.mg,SV,0x3d4146,a+BOX,b-BOX,sg,FD-0.12,0.06,y0+0.3,yL,{tag:'外装:縦ルーバー'});                  // 遠くから見た帯の地
+    for(const yy of[y0+0.3+(yL-y0-0.3)/2,yL]) fRail(S.mg,FR,a+BOX,b-BOX,sg,FD,0.10,yy-0.06,yy+0.06,'外装:枠');
+    for(let s=a;s<=b+0.01;s+=1.5) fFin(S.mg,FR,s,sg,FD,0.08,0.16,yL,y1,'外装:方立');
+    for(let s=a+BOX+4;s<b-BOX-1;s+=9) fBand(S.mg,SV,0x9c7a58,s,s+1.2,sg,FD+0.05,0.08,y0+0.3,y1-0.2,{tag:'外装:木の縦板'});
+    for(const [e0,e1] of[[a,a+BOX],[b-BOX,b]]){                                 // 端のガラスの箱と青海波のパネル
+      const m=(e0+e1)/2;
+      fBand(S.mg,MAT_SEIGAIHA,0xffffff,m-1.4,m+1.4,sg,FD+0.04,0.05,y0+0.4,y1-0.3,{uv:uvW(0.6,0.6),tag:'外装:青海波'});
+      fRail(S.mg,FR,e0,e1,sg,FD,0.12,y0+0.2,y0+0.4,'外装:枠');
+    }
+    fRail(S.mg,DK,a,b,sg,FD,0.14,y1-0.3,y1,'外装:枠');
+  },
+  /* 既定(北品川以外の新設の大屋根の駅。品川版には無い):桁の側面は明るい灰、ホーム階はガラスの帯に白い縦ルーバー */
   default:function(S,st,sg,y){
     const RL=staRoofHalf(st), a=st.x-RL+1, b=st.x+RL-1, yg=y-GIRDER, y0=y+FAC_Y0, y1=y+STD.FAS0;
     fBand(S.mg,SV,0xc9ccd0,a,b,sg,FD,0.2,yg,y0,{tag:'外装:高架の側面'});
@@ -3681,7 +3753,21 @@ const FAC={
 /* ---- 高架下の駅舎(公表パース) -------------------------------------------
    桁下の駅舎。長辺の中央に入口(暗い奥・ガラス・看板)。左右の壁と庇は駅ごと(BLDG_FAC)。
    seg=[[s0,s1,入口側の端(+1=s1/-1=s0)],...] */
-const BLDG_FAC={};   // 駅ごとの駅舎の壁と庇(無ければ既定の箱の庇)。品川版は推定のため無し
+const BLDG_FAC={
+  /* 北品川(決定デザインのパース):濃い灰の壁(横の羽目板)に木の縦板とガラスの窓、上に瓦の庇(旧東海道の意匠)。推定の寸法 */
+  '北品川':function(mg,md,st,sg,seg,hb){
+    for(const [s0,s1,ent] of seg){
+      fBand(mg,SV,0x4b4f54,s0,s1,sg,-1.0+0.05,0.05,0,hb-0.3,{tag:'駅舎:濃い灰の壁'});
+      for(let s=s0+1.5;s<s1-2;s+=5.5){ fGlass(mg,s,s+2.6,sg,-1.0+0.10,0.3,3.0);
+        fBand(mg,SV,0xa9794c,s+2.8,s+3.8,sg,-1.0+0.10,0.05,0.2,3.2,{tag:'駅舎:木の縦板'}); }
+    }
+    // 瓦の庇:駅舎の長さいっぱい、高さ 3.6〜4.2m・出 1.6m。上面は瓦の色、軒先は濃い灰
+    const a=Math.min(...seg.map(q=>q[0])), b=Math.max(...seg.map(q=>q[1]));
+    mg.loft(SV,a,b,s=>{const i=sg*(deckHalf(s)-1.0), o=sg*(deckHalf(s)+0.6);
+      return [[i,4.2],[o,3.6],[o,3.48],[i,4.05]];},{closed:true,caps:true,cols:[0x3a3e44,0x2f3236,0x55595e,0x55595e],tag:'駅舎:瓦の庇'});
+    return {canopyCol:0x3a3e44};
+  },
+};
 function bldg(S,st,y){
   // c0=駅舎の中ほど(入口・看板・庇の位置)。範囲は bldgSpan(下高井戸は駅の西端部)
   const SP=bldgSpan(st), a=SP[0], b=SP[1], c0=(a+b)/2;

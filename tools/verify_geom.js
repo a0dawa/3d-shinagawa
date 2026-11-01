@@ -146,6 +146,17 @@ const bottom = (s) => inThru(s) ? X.railY(s) - REF.DECK_DROP - REF.THRU_FLOOR : 
   ok('径間 ' + REF.THRU_SPAN + 'm 超は下路桁', bad === null, '全て', bad ? bad + ' が RC 桁' : n + '径間(下路桁 ' + X.VIA_THRU.length + '径間)');
 }
 
+/* ---- 6b'. JR 等の線路を跨ぐ径間は下路トラス(八ツ山跨線々路橋。東京都の架設写真) ---- */
+{
+  let bad = null, nJ = 0;
+  for (const T of X.VIA_THRU) {
+    let jr = false;
+    if (X.GSR) for (const L of X.GSR.rails) for (const p of L) { const q = X.prjXY(p[0], p[1]); if (q.s > T.s0 && q.s < T.s1 && Math.abs(q.off) < X.deckHalf(q.s)) jr = true; }
+    if (jr) { nJ++; if (!T.truss && !bad) bad = T.s0.toFixed(0) + '〜' + T.s1.toFixed(0) + ' が下路桁'; }
+  }
+  ok('JR 等の線路を跨ぐ径間は下路トラス', bad === null && nJ > 0, '全て', bad || nJ + '径間');
+}
+
 /* ---- 6c. 品川の東西自由通路・西口駅前広場デッキ ---- */
 {
   // デッキ・通路の下の道路(国土地理院の道路の面)の桁下
