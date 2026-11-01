@@ -7,15 +7,15 @@
 //
 //   ・列車との干渉は、登録簿 STRUCT(部品の s/off/高さの範囲)と、実際に出来た頂点の
 //     両方で測る。建築限界の寸法は検証側が独立に持つ(HTMLからは読まない)。
-//   ・公表デザインの要点も検証側が持つ。出典は京王電鉄 2019.5.30 の発表の「イメージパース」
-//     (利用者提供の画像。寸法はパースの人物 約1.7m と比べて読んだ)と「デザインのポイント」の文。
+//   ・品川版(2026-11):京王版から移植。京王の各駅の公表デザインの項目は外し、品川の駅(2面4線・橋上駅舎・東西自由通路・
+//     西口駅前広場デッキ)・北品川(大屋根)・新馬場(高架下駅舎)の要点と、2100形の車体・鋼製の下路桁で測る。
 //   使い方: node tools/verify_station.js [keikyu_shinagawa_3d.html]
 const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const X = require('./stub_three')(path,
   'STA:STA,STG:STG,STRUCT:STRUCT,TRACKS:TRACKS,railY:railY,frame:frame,PLATS:PLATS,' +
   'STAIRS:(typeof STAIRS!=="undefined"?STAIRS:[]),SIGNS:(typeof SIGNS!=="undefined"?SIGNS:[]),' +
   'WEAVE:(typeof WEAVE!=="undefined"?WEAVE:[]),MAT:MAT,MAT_BRICK:MAT_BRICK,MAT_STONE:MAT_STONE,MAT_LOUVER:MAT_LOUVER,MAT_RIB:MAT_RIB,' +
-  'platRange:platRange,deckHalf:deckHalf,' +
+  'platRange:platRange,deckHalf:deckHalf,terH:terH,' +
   'PSD:PSD,K8:K8,DECK_END:DECK_END,LODS:LODS,POLE_S:POLE_S,WIRE_CAT:WIRE_CAT,' +
   'GUIDES:GUIDES,depList:depList,pidsSetTime:pidsSetTime,' +
   'PEOPLE:(typeof PEOPLE!=="undefined"?PEOPLE:[]),scene:scene,STD:STD,POLES:(typeof POLES!=="undefined"?POLES:[]),' +
@@ -24,8 +24,8 @@ const X = require('./stub_three')(path,
 
 /* ---- 検証側が独立に持つ寸法 -------------------------------------------- */
 const REF = {
-  BODY_HW: 1.385 + 0.06,   // 車体の半幅(8000系 2.770m)+ゆれの余裕[m]
-  BODY_Y: [0.30, 4.30],    // 車体が占める高さ(レール面から。冷房装置の上端4.055+余裕)
+  BODY_HW: 1.39 + 0.06,    // 車体の半幅(京急2100形 2.78m・推定)+ゆれの余裕[m]
+  BODY_Y: [0.30, 4.30],    // 車体が占める高さ(レール面から。冷房装置の上端4.0+余裕)
   PANTO_HW: 1.10,          // パンタグラフ・架線の占める半幅[m]
   PANTO_Y: [4.30, 6.15],   // その高さ(トロリ線4.95・き電ちょう架線5.90+余裕0.25)。
                            // 架線の支持物(可動ブラケット)は駅の部品ではないので、ここでは測らない(⑥で見る)
@@ -33,44 +33,27 @@ const REF = {
   TACTILE_KEEP: 0.80,      // 階段・エレベーターは線路側の縁からこれ以上離す[m]
   SIGN_PER_PLAT: 3,        // 1面あたりの駅名標(両面で1組)の最小数
   CALLS_PER_STA: 16,       // 1駅あたりの Mesh(=描画の呼び出し)の上限
-  // 公表パース(京王電鉄 2019.5.30)に写っているもの → その駅に無ければならない部品
+  GROUND: 4.4,             // レール面と地盤の差がこれ未満の駅は「地上の駅」(高架下に駅舎を置けない。階段は橋上駅舎へ上がる)
+  // 駅ごとに無ければならない部品(品川版の推定の形。CLAUDE.md の表)
   DESIGN: {
-    '代田橋': ['外装:透明のスクリーン', '外装:縦材', '外装:流れのルーバー', '駅舎:レンガ', '駅舎:格子の庇'],
-    '明大前': ['外装:横ルーバー', '外装:紫のアクセント', '外装:灰の板', '外装:透明', '駅舎:半透明の壁'],
-    '下高井戸': ['外装:白い腰壁', '外装:ガラスの帯', '外装:ガラリの板', '大庇', '大庇の柱'],
-    '桜上水': ['外装:縦リブの板', '外装:細長い窓', '外装:暗い帯', '駅舎:木の縦ルーバー'],
-    '上北沢': ['外装:ベージュの帯', '外装:透明の帯', '外装:白い弓形の柱', '駅舎:石積み', '駅舎:低い庇'],
-    '芦花公園': ['外装:木の縦格子', '外装:深い軒', '外装:石積み', '駅舎:石積み'],
-    '千歳烏山': ['外装:格子(縦)', '外装:格子(横)', '外装:高架の側面', '駅舎:木の柱'],
+    '新馬場': ['上屋', '駅舎', '駅舎の庇'],
+    '北品川': ['大屋根', '外装:ガラス', '外装:縦ルーバー', '外装:赤の帯', '外装:高架の側面', '駅舎'],
+    '品川': ['上屋', '橋上駅舎', '橋上駅舎の柱', '東西自由通路(延伸・東)', '東西自由通路(延伸・西)', '西口駅前広場デッキ', 'デッキの柱'],
   },
-  // パースから読んだ寸法(人物 約1.7m との比)
-  LATTICE: [0.7, 1.2],     // 千歳烏山の格子の目[m](ホーム階の高さに約9段)
-  LATTICE_ROWS: 6,         // 同 段の数の最小
-  WEAVE_SEP: [0.06, 0.30], // 同 平織り:交点で表の帯と裏の帯の層の差(帯が貫き合わない・浮きすぎない)[m]
-  STAIRS_PER_PLAT: 2,      // 1つのホームの階段の数(利用者指示:1ホームに2か所)
+  STAIRS_PER_PLAT: 2,      // 1つのホームの階段の数(1ホームに2か所)
   STAIR_GAP: 10,           // 2か所の階段の離れの最小[m](同じ場所に並べたものは1か所と数える)
-  FIN_PITCH: [0.4, 0.65],  // 芦花公園の縦格子の間隔[m]
-  FIN_DEPTH: 0.40,         // 同 見込みの最小[m](奥行きのある厚い縦格子)
-  EAVE_OVER: 1.2,          // 同 屋根の張り出し(縦格子より外へ)の最小[m]
-  POST_PITCH: [1.2, 2.2],  // 代田橋の細い縦材の間隔[m]
-  FLOW_SPAN: 2.5,          // 代田橋の流れの帯が上下に動く幅の最小[m](下に寄る所と上に寄る所がある)
-  PURPLE_MIN: 20,          // 明大前の紫の横帯の数(片側)の最小
-  SWEEP: 1.0,              // 下高井戸の大庇の縁の高さの変化(反り上がり)の最小[m]
-  BOW_PITCH: [10, 20],     // 上北沢の白い弓形の柱の間隔[m]
-  BOW_TOP: 6.5,            // 同 上端(レール面から)の最小[m]:屋根の軒より上へ伸びる
-  // 発車標(利用者指示:階段とホームの接続部の付近)
+  // 発車標(階段とホームの接続部の付近)
   DEP_DIST: [1.0, 6.0],    // 階段口(入口の端)からホーム側への距離[m]
   DEP_EDGE: 0.25,          // ホームの縁からの内側の余裕[m]
   DEP_NOW: { morning: 450, noon: 720, evening: 1050, night: 1260 },   // 時刻の場面ごとの「今」[分]
-  DEP_WITHIN: 25,          // 次の2本はこの分以内(日中の京王線は1方向に毎時十数本)
-  // 種別ごとの停車駅(笹塚〜仙川。2022年3月のダイヤ改正後)
-  STOPS: { '特急': ['笹塚', '明大前', '千歳烏山'], '急行': ['笹塚', '明大前', '桜上水', '千歳烏山'],
-           '区急': ['笹塚', '明大前', '桜上水', '千歳烏山', '仙川'], '各停': 'all' },
-  DEST_DOWN: ['京王八王子', '高尾山口', '橋本', '調布', 'つつじヶ丘', '若葉台'],
-  DEST_UP: ['新宿', '本八幡', '新線新宿'],
-  // 列車が停まらないホームの縁(利用者指示:仙川の上りは北側の単式ホームを使う)。島式(中心 off 0)の北の縁は
-  // 上りの線に面するが番線の案内に数えない。[駅, ホームの中心 off, 縁(+1=北)]
-  NOSTOP: [['仙川', 0, 1]],
+  DEP_WITHIN: 25,          // 次の2本はこの分以内
+  // 種別ごとの停車駅(推定の模式:快特=品川だけ)
+  STOPS: { '快特': ['品川'], '普通': 'all' },
+  // 行先:エンジンの「下り」(+s)=京急の上り(泉岳寺方面)/「上り」=横浜方面
+  DEST_DOWN: ['泉岳寺', '青砥', '品川', '押上'],
+  DEST_UP: ['三崎口', '浦賀', '京急久里浜'],
+  DEST_KEY: ['泉岳寺', '三崎口'],   // 番線案内の方面に含まれる語(下り/上り)
+  NOSTOP: [],              // 列車が停まらないホームの縁(品川版は無し)
 };
 const nostop = (st, p, sg) => REF.NOSTOP.some((q) => q[0] === st.n && Math.abs(p.off - q[1]) < 0.5 && q[2] === sg);
 
@@ -105,7 +88,8 @@ function tracksAt(s, end) {
 }
 const STA_TAGS = new Set(['ホーム', '点字ブロック', 'ホーム端の柵', 'ホームドア', '階段の囲い', 'エレベーター',
   'ベンチ', '自動販売機', '発車標', '階段の案内', 'ホームの柱', '吊りレール', '屋根の梁', '大屋根', '上屋',
-  '駅舎', '駅舎の庇', '大庇', '大庇の柱', '大庇の縁', '橋上駅舎', '橋上駅舎の柱']);
+  '駅舎', '駅舎の庇', '大庇', '大庇の柱', '大庇の縁', '橋上駅舎', '橋上駅舎の柱',
+  '東西自由通路(延伸・東)', '東西自由通路(延伸・西)', '自由通路の柱', '西口駅前広場デッキ', 'デッキの柱', '下路桁']);
 
 /* ---- 1. 建築限界:駅の部品が列車・パンタグラフの通る空間に入らない ---------- */
 {
@@ -177,6 +161,7 @@ const STA_TAGS = new Set(['ホーム', '点字ブロック', 'ホーム端の柵
   ok('線路の上の屋根は架線柱より上', bad === null, '下端≥' + REF.ROOF_MIN + 'm', bad ? bad.join(' ') : '全て(' + n + '箇所)');
 }
 
+const isGround = (s) => { const f = X.frame(s, 0); return X.railY(s) - X.terH(f.x, f.z) < REF.GROUND; };
 /* ---- 2. 階段・エレベーター --------------------------------------------- */
 {
   let bad = null, nS = 0, nE = 0;
@@ -209,11 +194,11 @@ const STA_TAGS = new Set(['ホーム', '点字ブロック', 'ホーム端の柵
   }
   ok('各ホームに階段が' + REF.STAIRS_PER_PLAT + 'か所', miss === null, '幅4m以上の全ホーム(' + nP + '面)', miss || '全て');
   // 地上駅(線路が地平)の階段は上の橋上駅舎へ上がる(利用者指示:仙川)。高架駅は高架下へ降りる。
-  // 地上か高架かは検証側がレール面の高さで決める(3m 未満=地上)
+  // 地上か高架かは検証側がレール面と地盤(地形の高さ)の差で決める(REF.GROUND 未満=地上。品川版は地形が絶対の標高)
   let badUp = null, nUp = 0;
   for (const w of X.STAIRS) {
     if (w.kind !== '階段') continue;
-    const ground = X.railY((w.s0 + w.s1) / 2) < 3;
+    const ground = isGround((w.s0 + w.s1) / 2);
     if (ground) nUp++;
     if (!!w.up !== ground && !badUp) badUp = [w.st.n, ground ? '地上駅なのに下りる' : '高架駅なのに上がる'];
     if (ground && !X.STRUCT.some((q) => q.tag === '橋上駅舎' && q.s0 <= Math.max(w.s0, w.s1) + 0.5 && q.s1 >= Math.min(w.s0, w.s1) - 0.5 &&
@@ -228,7 +213,7 @@ const STA_TAGS = new Set(['ホーム', '点字ブロック', 'ホーム端の柵
     for (const q of S) { if (out.length && q[0] <= out[out.length - 1][1] + 0.5) out[out.length - 1][1] = Math.max(out[out.length - 1][1], q[1]); else out.push(q.slice()); }
     return out.map((q) => ({ s0: q[0], s1: q[1] })); };
   for (const w of X.STAIRS) {
-    if (w.up || X.railY((w.s0 + w.s1) / 2) < 3) continue;
+    if (w.up || isGround((w.s0 + w.s1) / 2)) continue;
     const B = spans(X.STRUCT.filter((q) => q.tag === '駅舎' && q.s0 <= w.s1 + 60 && q.s1 >= w.s0 - 60));
     if (!B.length) continue;                                   // 高架下駅舎を持たない駅(笹塚・八幡山)
     const inner = w.kind === '階段' ? (w.dir > 0 ? w.s1 : w.s0) : (w.s0 + w.s1) / 2;
@@ -237,12 +222,6 @@ const STA_TAGS = new Set(['ホーム', '点字ブロック', 'ホーム端の柵
       badIn = [w.st.n, w.kind, 's=' + (inner - w.st.x).toFixed(0) + '(駅舎 ' + B.map((q) => (q.s0 - w.st.x).toFixed(0) + '〜' + (q.s1 - w.st.x).toFixed(0)).join(',') + ')'];
   }
   ok('高架駅の階段・EVは駅舎へ降りる', badIn === null && nIn > 0, '降りた先が駅舎の範囲', badIn ? badIn.join(' ') : nIn + 'か所');
-  /* 下高井戸の駅舎は駅の西端部の一階(利用者指示)。基準:駅の中心を含まず、西端(ホームの西端 +105m)まで届く */
-  { const sh = X.STA.find((s) => s.n === '下高井戸');
-    const B = X.STRUCT.filter((q) => q.tag === '駅舎' && q.s1 > sh.x - 120 && q.s0 < sh.x + 140);
-    const s0 = Math.min(...B.map((q) => q.s0)) - sh.x, s1 = Math.max(...B.map((q) => q.s1)) - sh.x;
-    ok('下高井戸の駅舎は駅の西端部', B.length > 0 && s0 > 20 && s1 >= 100, '中心を含まず西端(+105m)まで',
-      B.length ? (s0.toFixed(0) + '〜' + s1.toFixed(0) + 'm') : '無い'); }
 }
 // 2b. ホームの柱・ベンチ・自動販売機は井戸・EVの中に立たない(階段を増やしたので位置がぶつかりうる)
 {
@@ -314,7 +293,7 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
       const m = S.L.find((r) => Math.abs(r.off - q.off) < 0.5);
       if ((!m || m.n !== q.n) && !badNum) badNum = [w.st.n, 'off ' + q.off.toFixed(2), q.n + '番線(期待 ' + (m ? m.n : '?') + ')'];
       const isDown = Math.sign(q.off) === S.down;
-      if ((isDown ? q.dest.indexOf('京王八王子') < 0 : q.dest.indexOf('新宿') < 0) && !badDest)
+      if ((isDown ? q.dest.indexOf(REF.DEST_KEY[0]) < 0 : q.dest.indexOf(REF.DEST_KEY[1]) < 0) && !badDest)
         badDest = [w.st.n, q.n + '番線', q.dest];
     }
     // 左右:番線案内を見る人は階段側に立ち、ホーム側(-dir·s)を向く。左に表示した線が見る人の左にある
@@ -337,7 +316,7 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
   ok('階段口:ホーム側=出口(黄)/階段側=番線案内(白)', badFace === null && nS > 0, '全ての階段', badFace ? badFace.join(' ') : nS + 'か所');
   ok('番線案内の番線(南から1,2,…)', badNum === null, 'ホームの線と一致', badNum ? badNum.join(' ') : '全て');
   ok('番線案内の左右が見る向きと合う', badLR === null, '全て', badLR ? badLR.join(' ') : '全て');
-  ok('番線案内の方面(下り=左側通行の側)', badDest === null, '下り=京王八王子方面/上り=新宿方面', badDest ? badDest.join(' ') : '全て');
+  ok('番線案内の方面(下り=左側通行の側)', badDest === null, '下り(+s)=' + REF.DEST_KEY[0] + '方面/上り=' + REF.DEST_KEY[1] + '方面', badDest ? badDest.join(' ') : '全て');
   ok('発車標が階段口に線ごと', badDep === null && nD > 0, 'ホーム側' + REF.DEP_DIST.join('〜') + 'm・縁から' + REF.DEP_EDGE + 'm内側', badDep ? badDep.join(' ') : nD + '台');
   // 発車標の時刻表:どの時刻でも、次の2本は今より後・REF.DEP_WITHIN 分以内、その駅に止まる種別、向きの合う行先
   let badT = null, nT = 0;
@@ -396,98 +375,16 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
   ok('看板の駅名がその駅', badSt === null, '全て', badSt ? badSt.join(' ') : '全て');
 }
 
-/* ---- 4. 公表デザインの要点が形になっている ----------------------------------- */
+/* ---- 4. 駅の要点(品川版の推定の形)が形になっている ----------------------------------- */
 {
   let bad = null;
-  const got = [];
-  for (const name of Object.keys(REF.DESIGN)) {
-    const st = X.STA.find((s) => s.n === name);
-    if (!st) { bad = bad || [name, '駅が無い']; continue; }
-    const tags = new Set(X.STRUCT.filter((q) => (q.s0 + q.s1) / 2 > st.x - 140 && (q.s0 + q.s1) / 2 < st.x + 140).map((q) => q.tag));
-    const miss = REF.DESIGN[name].filter((t) => !tags.has(t));
-    if (miss.length && !bad) bad = [name, miss.join('・') + 'が無い'];
-    got.push(name + ' ' + REF.DESIGN[name].length);
+  for (const n of Object.keys(REF.DESIGN)) {
+    const st = X.STA.find((z) => z.n === n); if (!st) { bad = [n, '駅が無い']; break; }
+    const near = X.STRUCT.filter((q) => q.s1 > st.x - 260 && q.s0 < st.x + 260);
+    const miss = REF.DESIGN[n].filter((t) => !near.some((q) => q.tag === t));
+    if (miss.length) { bad = [n, miss.join('・') + ' が無い']; break; }
   }
-  ok('公表デザインの要点', bad === null, '7駅すべて', bad ? bad.join(' ') : '7駅すべて');
-  // パースから読んだ寸法(北面で測る)
-  const north = (tag) => X.STRUCT.filter((q) => q.tag === tag && q.o0 > 0);
-  const pitchOf = (list) => {
-    const v = list.map((q) => (q.s0 + q.s1) / 2).sort((a, b) => a - b);
-    return v.length > 1 ? (v[v.length - 1] - v[0]) / (v.length - 1) : 0;
-  };
-  const inR = (v, r) => v >= r[0] && v <= r[1];
-  // 千歳烏山の格子は平織り:縦の帯が格子の目の間隔で揃って並び、交点ごとに横と縦の帯の表裏が
-  // 上下・左右で交互に入れ替わる(利用者指示。2026-10 小口積みから訂正)
-  { const byC = new Map();
-    for (const q of north('外装:格子(縦)')) {
-      const k = Math.round(q.y0 * 50);
-      if (!byC.has(k)) byC.set(k, []);
-      byC.get(k).push((q.s0 + q.s1) / 2);
-    }
-    const C = [...byC.keys()].sort((a, b) => a - b).map((k) => byC.get(k).sort((a, b) => a - b));
-    let pmin = 1e9, pmax = 0, bad = null;
-    for (const c of C) for (let i = 1; i < c.length; i++) { const d = c[i] - c[i - 1]; pmin = Math.min(pmin, d); pmax = Math.max(pmax, d); }
-    for (let r = 1; r < C.length; r++)                // 縦の帯は段ごとにずれず、同じ位置に揃う
-      if ((C[r].length !== C[0].length || C[r].some((v, i) => Math.abs(v - C[0][i]) > 0.01)) && !bad) bad = (r + 1) + '段目で縦の帯がずれる';
-    ok('千歳烏山の格子の目', C.length >= REF.LATTICE_ROWS && pmin >= REF.LATTICE[0] && pmax <= REF.LATTICE[1],
-      REF.LATTICE.join('〜') + 'm・' + REF.LATTICE_ROWS + '段以上',
-      C.length ? pmin.toFixed(2) + '〜' + pmax.toFixed(2) + 'm・' + C.length + '段' : '無し');
-    // 平織り:交点ごとに表(外側)の帯が横と縦で入れ替わる。右隣・上の交点とは表裏が逆
-    const key = (q) => q.sg + ',' + q.r + ',' + q.c, W = new Map(X.WEAVE.map((q) => [key(q), q]));
-    const outerH = (q) => Math.abs(q.hor) > Math.abs(q.ver);
-    let n = 0;
-    for (const q of X.WEAVE) {
-      n++;
-      const sep = Math.abs(Math.abs(q.hor) - Math.abs(q.ver));
-      if ((sep < REF.WEAVE_SEP[0] || sep > REF.WEAVE_SEP[1]) && !bad) bad = '交点の層の差 ' + sep.toFixed(3) + 'm';
-      for (const nb of [W.get(q.sg + ',' + q.r + ',' + (q.c + 1)), W.get(q.sg + ',' + (q.r + 1) + ',' + q.c)])
-        if (nb && outerH(nb) === outerH(q) && !bad) bad = '段' + q.r + '・列' + q.c + 'の隣と表裏が同じ';
-    }
-    ok('千歳烏山の格子が平織り(交点ごとに表裏が交互)', bad === null && n > 100, '上下・左右で交互・層の差' + REF.WEAVE_SEP.join('〜') + 'm',
-      bad || n + '交点'); }
-  { const L = north('外装:木の縦格子'), pt = pitchOf(L);
-    const dep = L.length ? Math.min.apply(null, L.map((q) => q.o1 - q.o0)) : 0;
-    ok('芦花公園の縦格子(間隔・見込み)', inR(pt, REF.FIN_PITCH) && dep >= REF.FIN_DEPTH - 1e-6,
-      REF.FIN_PITCH.join('〜') + 'm・見込み≥' + REF.FIN_DEPTH, pt.toFixed(2) + 'm・' + dep.toFixed(2) + 'm');
-    const eave = north('外装:深い軒'), fo = L.length ? Math.max.apply(null, L.map((q) => q.o1)) : 0;
-    const eo = eave.length ? Math.max.apply(null, eave.map((q) => q.o1)) : 0;
-    ok('芦花公園の深い軒', eo - fo >= REF.EAVE_OVER, '縦格子より' + REF.EAVE_OVER + 'm以上外', (eo - fo).toFixed(2) + 'm'); }
-  { const pt = pitchOf(north('外装:縦材'));
-    ok('代田橋の細い縦材の間隔', inR(pt, REF.POST_PITCH), REF.POST_PITCH.join('〜') + 'm', pt.toFixed(2) + 'm');
-    const F = north('外装:流れのルーバー').map((q) => (q.y0 + q.y1) / 2 - X.railY((q.s0 + q.s1) / 2));
-    const lo = F.length ? Math.min.apply(null, F) : 0, hi = F.length ? Math.max.apply(null, F) : 0;
-    ok('代田橋の流れ(帯が上下に動く)', hi - lo >= REF.FLOW_SPAN, '≥' + REF.FLOW_SPAN + 'm',
-      (hi - lo).toFixed(2) + 'm(' + lo.toFixed(1) + '〜' + hi.toFixed(1) + ')'); }
-  { const n = north('外装:紫のアクセント').length;
-    ok('明大前の紫の横帯', n >= REF.PURPLE_MIN, '片側' + REF.PURPLE_MIN + '本以上', n + '本'); }
-  { const E = X.STRUCT.filter((q) => q.tag === '大庇の縁').map((q) => q.y0);
-    const sw = E.length ? Math.max.apply(null, E) - Math.min.apply(null, E) : 0;
-    ok('下高井戸の大庇の反り', sw >= REF.SWEEP, '縁の高さの差≥' + REF.SWEEP + 'm', sw.toFixed(2) + 'm');
-    /* 置き場所(利用者指示・公表パース):駅の西南。南側(off<0)だけで、駅の中心より西(s が大きい側)へ張り出し、
-       反り上がるのは西の端(パースは南から望む画で、左=西の端が反る) */
-    const sh = X.STA.find((s) => s.n === '下高井戸');
-    const R = X.STRUCT.filter((q) => q.tag === '大庇の縁');
-    const south = R.length > 0 && R.every((q) => q.o1 < 0);
-    const sMin = Math.min(...R.map((q) => q.s0)), sMax = Math.max(...R.map((q) => q.s0));
-    const top = R.reduce((a, q) => (q.y0 > a.y0 ? q : a), R[0] || { y0: 0, s0: 0 });
-    ok('下高井戸の大庇は駅の西南', south && (sMin + sMax) / 2 > sh.x + 5 && sMax > sh.x + 30,
-      '南側だけ・中心より西(s+)へ', (south ? '南' : '北にもある') + '・s ' + (sMin - sh.x).toFixed(0) + '〜' + (sMax - sh.x).toFixed(0) + 'm');
-    ok('下高井戸の大庇は西の端で反る', R.length > 0 && top.s0 >= sMax - 4.01, '最も高い縁=西端', '最も高い縁 s ' + (top.s0 - sh.x).toFixed(0) + 'm(西端 ' + (sMax - sh.x).toFixed(0) + 'm)'); }
-  { const B = north('外装:白い弓形の柱'), pt = pitchOf(B);
-    const top = B.length ? Math.min.apply(null, B.map((q) => q.y1 - X.railY((q.s0 + q.s1) / 2))) : 0;
-    ok('上北沢の白い弓形の柱', inR(pt, REF.BOW_PITCH) && top >= REF.BOW_TOP,
-      REF.BOW_PITCH.join('〜') + 'm・上端≥' + REF.BOW_TOP, pt.toFixed(1) + 'm・' + top.toFixed(2) + 'm'); }
-  // 模様を画像で持つ外装(レンガ・横ルーバー・石積み・縦リブ)。その材質が駅の群にあること
-  const mats = (name) => {
-    const S = X.STG.find((q) => q.st.n === name), out = new Set();
-    const walk = (o) => { if (o.isMesh) out.add(o.material); for (const c of o.children || []) walk(c); };
-    if (S) walk(S.g);
-    return out;
-  };
-  for (const [n, m, lab] of [['代田橋', X.MAT_BRICK, 'レンガ'], ['明大前', X.MAT_LOUVER, '横ルーバー'],
-    ['明大前', X.MAT.frost, '半透明の壁'], ['芦花公園', X.MAT_STONE, '石積み'], ['上北沢', X.MAT_STONE, '石積み'],
-    ['桜上水', X.MAT_RIB, '縦リブ']])
-    ok(n + 'の' + lab, mats(n).has(m), lab + 'の材質', mats(n).has(m) ? 'あり' : 'なし');
+  ok('駅の要点(品川版)', bad === null, Object.keys(REF.DESIGN).join('・'), bad ? bad.join(' ') : '全て');
 }
 
 /* ---- 5. 軽さ:駅ごとの Mesh の数と、細部が LOD に載っていること --------------- */
@@ -512,20 +409,14 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
    2026-10-13 利用者指示:2面4線の本線と待避線の間を 11m に(以前 9.6m。ホームは 6.5+1.4=7.9m)、分岐をさらに駅へ50m 寄せる(196.5→146.5m)。
    芦花公園の相対式ホームを2m ずつ広く(4.5→6.5m) */
 {
-  const RW = { QUAD: ['明大前', '桜上水', '千歳烏山'], QUAD_W: 5.0 + 1.5 + 1.4, TIP: 226.5 - 30 - 50, TIP_TOL: 3, ROKA_W: 4.5 + 2, EDGE: [1.40, 1.60], PSD_IN: 0.12,
-    SENGAWA_N: 3.4 + 5, INO_W: 3.4 + 5, INO_EDGE: 1.40 + 0.15, INO_CLEAR: 0.5, INO_FLOOR: 1.05 };   // 井の頭線:縁=車体の半幅 1.40+0.15・床はレール面+1.05
-  // ホームの幅
+  // 品川(島式2面4線):ホームの幅 7.9m(推定)・本線から副本線への分岐の先端は駅の中心から 203m(推定)
+  const RW = { QUAD: ['品川'], QUAD_W: 7.9, TIP: 203, TIP_TOL: 3, TURN_N: 4, EDGE: [1.40, 1.60], PSD_IN: 0.12 };
   let bW = null;
   for (const n of RW.QUAD) {
     const st = X.STA.find((z) => z.n === n), L = X.PLATS.filter((q) => Math.abs((q.x0 + q.x1) / 2 - st.x) < 60);
     if (L.length !== 2 || L.some((q) => Math.abs(2 * q.hw - RW.QUAD_W) > 0.01)) { bW = n + ' ' + L.map((q) => (2 * q.hw).toFixed(2)).join('/'); break; }
   }
-  { const st = X.STA.find((z) => z.n === '仙川'), q = X.PLATS.filter((q) => Math.abs((q.x0 + q.x1) / 2 - st.x) < 60 && q.off > 3).sort((a, b) => b.off - a.off)[0];
-    if (!bW && (!q || Math.abs(2 * q.hw - RW.SENGAWA_N) > 0.01)) bW = '仙川の北 ' + (q ? (2 * q.hw).toFixed(2) : 'なし'); }
-  { const st = X.STA.find((z) => z.n === '芦花公園'), L = X.PLATS.filter((q) => Math.abs((q.x0 + q.x1) / 2 - st.x) < 60);
-    if (!bW && (L.length !== 2 || L.some((q) => Math.abs(2 * q.hw - RW.ROKA_W) > 0.01))) bW = '芦花公園 ' + L.map((q) => (2 * q.hw).toFixed(2)).join('/'); }
-  ok('ホームの幅(拡幅)', bW === null, '2面4線 ' + RW.QUAD_W + 'm・仙川の北 ' + RW.SENGAWA_N + 'm・芦花公園 ' + RW.ROKA_W + 'm', bW || '一致');
-  // 分岐の先端(本線→待避線)
+  ok('2面4線のホームの幅', bW === null, RW.QUAD_W + 'm', bW || '一致');
   let bT = null, nT = 0;
   for (const n of RW.QUAD) {
     const st = X.STA.find((z) => z.n === n);
@@ -533,8 +424,7 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
       nT++; if (Math.abs(Math.abs(T.s - st.x) - RW.TIP) > RW.TIP_TOL && !bT) bT = n + ' ' + (T.s - st.x).toFixed(1) + 'm';
     }
   }
-  ok('待避線の分岐の位置', bT === null && nT === 12, '駅の中心から ' + RW.TIP + '±' + RW.TIP_TOL + 'm(12組)', bT || nT + '組');
-  // 待避線の側の縁が線路に沿う(描いたホームの面=登録簿 'ホーム' の区間)
+  ok('副本線の分岐の位置', bT === null && nT === RW.TURN_N, '駅の中心から ' + RW.TIP + '±' + RW.TIP_TOL + 'm(' + RW.TURN_N + '組)', bT || nT + '組');
   let bE = null, nE = 0;
   for (const n of RW.QUAD) {
     const st = X.STA.find((z) => z.n === n);
@@ -545,43 +435,24 @@ ok('乗務員モニターを置かない', !X.STRUCT.some((q) => q.tag === '乗�
         const sg = Math.sign(t.zf(st.x)), m = (q.s0 + q.s1) / 2, edge = sg > 0 ? q.o1 : -q.o0;
         if (sg > 0 ? q.o0 < 0 : q.o1 > 0) continue;
         const gap = sg * t.zf(m) - edge;
-        if (gap > 3) continue;                       // 井戸の脇の内側の片(外の縁は井戸)
+        if (gap > 3) continue;
         nE++;
         if ((gap < RW.EDGE[0] || gap > RW.EDGE[1]) && !bE) bE = n + ' ' + t.id + ' s=' + (m - st.x).toFixed(0) + ' ' + gap.toFixed(2) + 'm';
       }
     }
   }
-  ok('待避線の側のホームの縁が線路に沿う', bE === null && nE > 0, '線路の中心から縁 ' + RW.EDGE.join('〜') + 'm(ホームの端まで)', bE || nE + '区間');
-  // ホームドアの戸(描いたインスタンス)も線路に沿う:面する線路から 縁の距離−0.12
+  ok('副本線の側のホームの縁が線路に沿う', bE === null && nE > 0, '線路の中心から縁 ' + RW.EDGE.join('〜') + 'm', bE || nE + '区間');
   let bD = null, nD = 0;
   for (const r of X.PSD) {
     if (RW.QUAD.indexOf(r.st.n) < 0 || !r.inst || !r.inst.mats) continue;
     const t = X.TRACKS.filter((t) => r.st.x > t.x0 && r.st.x < t.x1).sort((a, b) => Math.abs(a.zf(r.st.x) - r.off) - Math.abs(b.zf(r.st.x) - r.off))[0];
     for (const M of r.inst.mats) {
       const q = X.prjXY(M.p.x, M.p.z); if (q.s < t.x0 || q.s > t.x1) continue; nD++;
-      const gap = Math.abs(t.zf(q.s) - q.off), want = (1.55 + RW.PSD_IN);   // 列は縁の 0.12m 内側
+      const gap = Math.abs(t.zf(q.s) - q.off), want = (1.55 + RW.PSD_IN);
       if (Math.abs(gap - want) > 0.05 && !bD) bD = r.st.n + ' ' + r.off + ' s=' + (q.s - r.st.x).toFixed(0) + ' ' + gap.toFixed(2) + 'm';
     }
   }
   ok('ホームドアの戸が線路に沿う', bD === null && nD > 0, '面する線路から ' + (1.55 + RW.PSD_IN).toFixed(2) + '±0.05m', bD || nD + '枚');
-  /* 井の頭線のホーム(2026-10-27 実際の線路の位置に):縁は面する線路(RAW.rail の tr の実際の線路。検証側の曲線 tools/xcurve.js)から
-     車体の半幅+0.15m、幅 8.4m、上面は車両の床の 0.1m 以内。高架の柱は線路からホームの背面+擁壁(0.5m)より外 */
-  const XI = require('./xcurve')(X, X.RAW.rail.ino, 'cross'), IP = X.INO_PLAT, railTop = X.XR.RAILY + X.XR.RAILH / 2;
-  let bI = Math.abs(IP.top - (railTop + RW.INO_FLOOR)) > 0.1 ? '上面 ' + IP.top.toFixed(2) + 'm' : null, nI = 0, wE = 0;
-  for (const [k, pl] of [[1, IP.up], [0, IP.dn]]) for (let u = pl[0]; u <= pl[1] + 1e-6; u += 2) {
-    const P = IP.at(k, u), e = X.INO.pos(u, P.edge), b = X.INO.pos(u, P.back), d = XI.dTrack(k, e.x, e.z), w = Math.hypot(b.x - e.x, b.z - e.z), o = XI.dTrack(1 - k, e.x, e.z);
-    nI++; wE = Math.max(wE, Math.abs(d - RW.INO_EDGE));
-    if (!bI && (Math.abs(d - RW.INO_EDGE) > 0.03 || Math.abs(w - RW.INO_W) > 0.02 || o < d)) bI = (k ? '上り' : '下り') + ' u=' + u.toFixed(0) + ' 縁は線路から ' + d.toFixed(3) + 'm・幅 ' + w.toFixed(2) + (o < d ? '・反対の線路の側' : '');
-  }
-  let minN = 1e9;
-  for (const c of X.VIA_COLS) for (const o of c.offs) {
-    const f = X.frame(c.s, o), p = XI.uv(f.x, f.z);
-    if (p.u < X.XR.U0 || p.u > X.XR.U1 || Math.abs(p.n) > 60) continue; minN = Math.min(minN, XI.dTrack(0, f.x, f.z), XI.dTrack(1, f.x, f.z));
-  }
-  const lim = RW.INO_EDGE + RW.INO_W + RW.INO_CLEAR;
-  if (!bI && minN < lim) bI = '柱が井の頭線の線路から ' + minN.toFixed(1) + 'm';
-  ok('井の頭線のホームと高架の柱', bI === null && nI > 100, '縁=線路+' + RW.INO_EDGE.toFixed(2) + '・幅' + RW.INO_W + 'm・上面=床・柱は線路から ' + lim.toFixed(2) + 'm 以遠',
-    bI || '縁の差 ' + wE.toFixed(3) + 'm(' + nI + '点)・柱は ' + minN.toFixed(1) + 'm');
 }
 /* ---- 出力 ---- */
 const w = (s, n) => String(s) + ' '.repeat(Math.max(0, n -
@@ -659,14 +530,14 @@ const w = (s, n) => String(s) + ' '.repeat(Math.max(0, n -
     const sides = [-1, 1].filter((sg) => X.TRACKS.some((t) => sm >= t.x0 && sm <= t.x1 && sg * (t.zf(sm) - q.edge(sm, sg)) > 0.3 && sg * (t.zf(sm) - q.edge(sm, sg)) < 2.6));
     n++;
     for (const sg of sides) { if (cl[sg] < 1.5 - 1e-6 && !bad) bad = w.st.n + ' 通り道 ' + cl[sg].toFixed(2) + 'm'; if (cl[sg] > 2.1 + 1e-6 && ww < 3.5 - 1e-6 && !bad) bad = w.st.n + ' 通り道 ' + cl[sg].toFixed(2) + 'm に井戸 ' + ww.toFixed(2) + 'm'; }
-    if (['明大前', '桜上水', '千歳烏山'].indexOf(w.st.n) >= 0) quadW.push(ww);
+    if (w.st.t === 'quad') quadW.push(ww);
   }
-  ok('階段・エスカレーターの幅', bad === null && n >= 18 && quadW.length === 12 && quadW.every((v) => v >= 3.5 - 1e-6), '通り道 1.5m 以上・2.1m を超えるなら井戸 3.5m 以上・2面4線は 3.5m 以上',
+  ok('階段・エスカレーターの幅', bad === null && n >= 12 && quadW.length === 4 && quadW.every((v) => v >= 3.5 - 1e-6), '通り道 1.5m 以上・2.1m を超えるなら井戸 3.5m 以上・2面4線は 3.5m 以上',
     bad || n + 'か所・2面4線 ' + (quadW.length ? Math.min(...quadW).toFixed(2) : '-') + 'm');
 }
 /* ---- 乗り降り(2026-10-12 利用者指示:扉が開いたらまず車内の人がホームに降りて階段やエレベーターへ進み、降車が終わったら
-   ホームで待っていた人が乗る。自然な歩き方でぶつからないように)。明大前に下りの各停を停めて 150秒動かす。検証側の決まり:
-   ・扉が開いて 10秒のうちに 20人以上が降りる。降りる人の最初の位置は扉の中心から 1.0m 以内・ホームの縁より線路の側(車内)
+   ホームで待っていた人が乗る。自然な歩き方でぶつからないように)。品川に泉岳寺方面の快特を停めて 150秒動かす。検証側の決まり:
+   ・扉が開いて 10秒のうちに、扉1つあたり 0.5人以上が降りる(2100形 16扉で8人)。降りる人の最初の位置は扉の中心から 1.0m 以内・ホームの縁より線路の側(車内)
    ・降りた人は階段の井戸(登録簿 STAIRS の範囲)かエレベーターの前(1.8m 以内)で消える
    ・乗る人が歩き出すとき、同じ扉から降りた人がその扉の 1.5m 以内にいない(降車が先)。乗る人は扉の中心から 1.0m 以内・車内で消える
    ・歩く人どうし・歩く人と立っている人の中心が 0.3m 以上離れる。歩く人はホームの床の上の物(柱・ベンチ・自販機・EV・階段の囲い)に入らない
@@ -676,13 +547,17 @@ const w = (s, n) => String(s) + ' '.repeat(Math.max(0, n -
   const sideOf = (q, s, o) => (Math.abs(o - q.edge(s, -1)) < Math.abs(o - q.edge(s, 1)) ? -1 : 1);
   // 乗る人の側:行き先(車内=ホームの外)がどちらの縁の外か
   const boardSide = (w) => { const L = w.path[w.path.length - 1]; return L[1] < w.q.edge(L[0], -1) ? -1 : (L[1] > w.q.edge(L[0], 1) ? 1 : sideOf(w.q, w.m.s, w.m.o)); };
-  const RF = { ALIGHT_MIN: 20, DOOR_TOL: 1.0, EXIT_EV: 1.8, GAP: 0.3, CLEAR: 1.5, BACK: 120 };
-  const st = X.STA.find((z) => z.n === '明大前'), t = X.trains.find((u) => u.dir > 0 && u.kind === '各停');
+  // 降りる人の数の下限は扉の数に比例(京王版:10両×4扉=40扉で20人=1扉あたり0.5人。品川版:2100形 8両×2扉=16扉で8人)
+  const RF = { ALIGHT_PER_DOOR: 0.5, DOORS: 8 * 2, DOOR_TOL: 1.0, EXIT_EV: 1.8, GAP: 0.3, CLEAR: 1.5, BACK: 120 };
+  RF.ALIGHT_MIN = Math.ceil(RF.ALIGHT_PER_DOOR * RF.DOORS);
+  const st = X.STA.find((z) => z.n === '品川'), t = X.trains.find((u) => u.dir > 0 && u.kind === '快特');
   for (const u of X.trains) if (u !== t) { u.x = u.dir > 0 ? -30000 : 30000; u.st = 'wait'; }
   t.x = X.stopPosOf(st, 1) - X.CAR_HALF; t.st = 'dwell'; t.dwell = 58; t.atSt = st; t.v = 0; X.placeTrain(t);
   const OBJ = X.STRUCT.filter((o) => ['ホームの柱', 'ベンチ', '自動販売機', 'エレベーター', '階段の囲い'].indexOf(o.tag) >= 0 && Math.abs((o.s0 + o.s1) / 2 - st.x) < 130);
   const seen = new Map(); let bad = null, nOff10 = 0, tOpen = null, minG = 1e9, depT = null, hiddenAtDep = null;
   for (let k = 0; k < 3600 && !bad; k++) {
+    // 品川版:線路が短く(2.3km)、待たせた列車が約80秒で戻って同じ駅に停まる。期間中はほかの列車を毎コマ遠くに留める
+    for (const u of X.trains) if (u !== t) { u.x = u.dir > 0 ? -30000 : 30000; u.st = 'wait'; u.x0 = u.x; }
     X.stepWorld(0.05); const T = k * 0.05;
     if (tOpen === null && t.dr > 0.95) tOpen = T;
     if (depT === null && t.st !== 'dwell') { depT = T; hiddenAtDep = X.PEOPLE.filter((m) => m.st === st && !m.shown); }

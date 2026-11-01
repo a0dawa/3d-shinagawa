@@ -2303,8 +2303,8 @@ function parSect(s,sg){
       }
       C.mg.col(THRU.COL).box(VD,q,0,thruBot(q),yT(q)-VIA.SLAB,0.30,2*(deckHalf(q)+THRU.OUT),{skip:'+y',tag:'下路桁の横桁'});
     }
-    STRUCT.push({tag:'下路桁', s0:T.s0, s1:T.s1, o0:-(deckHalf(T.s0)+THRU.OUT+0.3), o1:deckHalf(T.s0)+THRU.OUT+0.3,
-                 y0:bot(T.s0), y1:top(T.s0)});
+    for(const sg of[-1,1]){ const e=deckHalf((T.s0+T.s1)/2)+THRU.OUT;                    // 主桁ごと(腹板±0.3m=フランジの幅)
+      STRUCT.push({tag:'下路桁', s0:T.s0, s1:T.s1, o0:sg>0?e-0.3:-(e+0.3), o1:sg>0?e+0.3:-(e-0.3), y0:bot(T.s0), y1:top(T.s0)}); }
   }
   // 継目(30mごと):高欄の外面と笠木・地覆に目地
   for(let s=Math.ceil(DOM.x0/VIA.BLOCK)*VIA.BLOCK;s<DECK_END;s+=VIA.BLOCK){
@@ -3268,10 +3268,9 @@ function staTracks(st,pm){
     q.n=j+1; q.dn=q.off<0; q.quad=quad;
     const same=L.filter(r=>(r.off<0)===q.dn);
     q.outer=quad&&Math.abs(q.off)>=Math.max.apply(null,same.map(r=>Math.abs(r.off)))-1e-6;
-    if(q.dn){ q.dest='京王八王子・高尾山口・橋本方面'; q.en='for Keio-hachioji, Takaosanguchi, Hashimoto'; }
-    else if(st.n==='笹塚'&&q.n===3){ q.dest='新宿方面'; q.en='for Shinjuku'; }
-    else if(st.n==='笹塚'&&q.n===4){ q.dest='新線新宿・本八幡方面'; q.en='for Shinjuku (Keio New Line), Motoyawata'; }
-    else { q.dest='新宿・本八幡方面'; q.en='for Shinjuku, Motoyawata'; }
+    // 品川版:エンジンの「下り」(dn)= +s = 京急の上り(泉岳寺方面)。方面の表記は推定
+    if(q.dn){ q.dest='泉岳寺・都営浅草線方面'; q.en='for Sengakuji, Toei Asakusa Line'; }
+    else { q.dest='横浜・三崎口方面'; q.en='for Yokohama, Misakiguchi'; }
   });
   return L;
 }
@@ -7049,7 +7048,9 @@ function psdFixed(S,a,b,off0,y,sh){
     bar(S.mg,0x59626d,a,b,oA,PSD_T/2+0.03,yp+PSD_H-0.10,yp+PSD_H);
     bar(S.md,0x1b2a66,a,b,oA,PSD_T/2+0.006,yp+PSD_H-0.36,yp+PSD_H-0.28);
   }
-  for(let i=0,n=bend?0:1;i<n;i++){
+  // 品川版:開口の無い長い区間(2扉の8両が停まらない所。品川で 76m)を1本のまっすぐな箱にすると、曲線の駅で端が線路側へ
+  // 食い込む(半径約2,000m で 0.36m。⑪の頂点の建築限界)。4m 以下の箱に分ける
+  for(let i=0,n=bend?0:Math.max(1,Math.ceil((b-a)/4));i<n;i++){
     const a1=a+(b-a)*i/n, b1=a+(b-a)*(i+1)/n, m=(a1+b1)/2, L=b1-a1, off=oA(m), ex=(n>1)?0.02:0;
     S.mg.col(0xe9ebee).box(MAT.stVC,m,off,yp,yp+PSD_H-0.10,L+ex,PSD_T,{skip:'-y',tag:'ホームドア'});
     S.mg.col(0x59626d).box(MAT.stVC,m,off,yp+PSD_H-0.10,yp+PSD_H,L+0.02,PSD_T+0.06,{skip:'-y'});
@@ -7318,7 +7319,17 @@ NIGHT_HOOKS.push(on=>{ M_PEOPLE.emissive.copy(on?glow(0x3a3a3a):srgb(0x000000));
     // まばらに立つ人(向きはどちらかの縁)
     for(let k=0;k<10;k++) put(q.x0+3+Math.random()*(q.x1-q.x0-6), q.off+(Math.random()-0.5)*2*(q.hw-1.2), Math.random()<0.5?-1:1);
     byPlat.set(q,true);
+    q.put=put;
   }
+  /* 品川版:ホームの短い駅(新馬場・北品川の6両 120m)は乱数しだいで人が少なくなる(京王版の駅ごとの決まり=15人以上を割る)。
+     ホームの中ほどが近い駅ごとに数え、PEOPLE_MIN に満たなければ、その駅のホームにまばらに立つ人を足す */
+  { const PEOPLE_MIN=18, near=q=>STA.reduce((b,z)=>Math.abs(z.x-(q.x0+q.x1)/2)<Math.abs(b.x-(q.x0+q.x1)/2)?z:b,STA[0]);
+    for(const st of STA){
+      const Q=PLATS.filter(q=>near(q)===st&&q.put); if(!Q.length) continue;
+      for(let k=0;k<400&&PEOPLE.filter(m=>Q.indexOf(m.q)>=0).length<PEOPLE_MIN;k++){
+        const q=Q[k%Q.length]; q.put(q.x0+3+Math.random()*(q.x1-q.x0-6), q.off+(Math.random()-0.5)*2*(q.hw-1.2), Math.random()<0.5?-1:1); }
+    }
+    for(const q of PLATS) delete q.put; }
   // 駅ごと(ホームの中ほどが近い駅)に1つのインスタンス
   const groups=new Map();
   for(const m of PEOPLE){ let st=STA[0]; for(const z of STA) if(Math.abs(z.x-(m.q.x0+m.q.x1)/2)<Math.abs(st.x-(m.q.x0+m.q.x1)/2)) st=z;
