@@ -3,6 +3,7 @@
 //   車体の形(シェル)・窓と扉の数・パンタグラフ・編成(8両・車番・パンタの位置)を、HTML を実行して出来た
 //   頂点と登録簿から測る。塗り分け(赤・白い帯・黒い前面窓)はシェーダなので頂点には現れない(写真で照合する)。
 //   基準値は下の REF で持つ(HTML から読まない)。★多くは推定値(CLAUDE.md の「推定値の一覧」)。
+//   公表値:車体幅 2,780・屋根 3,645・床面 1,153・空調上面 4,026.5(ja.wikipedia の諸元表。2026-11 確認)
 //   実車の資料・写真で REF と HTML の K21 を両方直すこと。
 //   使い方: node tools/verify_car21.js [keikyu_shinagawa_3d.html]
 const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
@@ -11,8 +12,9 @@ const X = require('./stub_three')(path,
 
 const REF = {
   LEN: 17.5, PITCH: 18.0,          // 車体長・連結面間(推定)
-  HWB: 2.78 / 2,                   // 車体半幅(推定)
-  Z_FLR: 1.15, ROOF: 3.645,        // 床面・屋根の高さ(推定)
+  HWB: 2.78 / 2,                   // 車体半幅(公表値 車体幅 2,780)
+  Z_FLR: 1.153, ROOF: 3.645,       // 床面・屋根の高さ(公表値)
+  AC_TOP: 4.0265,                  // 冷房装置の上端(公表値 空調上面)
   DOORS: 2, DOORX: [-4.85, 4.85],  // 片側の扉の数と中心(推定)
   WIN_BETWEEN: 4,                  // 扉間の側窓の数(推定)
   CARS: 8,                         // 8両編成
@@ -43,6 +45,7 @@ const G = X.K21GEO;
   const hw = Math.max(yr[1], -yr[0]), side = mid.filter((p) => Math.abs(Math.abs(p[1]) - hw) < 1e-4);
   ok('床面の高さ(側面の下端)', near(range(side, 2)[0], REF.Z_FLR), REF.Z_FLR + 'm', range(side, 2)[0].toFixed(3) + 'm');
   const cr = range(cab, 0);
+  ok('冷房装置の上端', near(range(v4pts(G.ac), 2)[1], REF.AC_TOP), REF.AC_TOP + 'm(公表値)', range(v4pts(G.ac), 2)[1].toFixed(4) + 'm');
   ok('先頭車の長さ(連結面〜前面)', cr[1] - cr[0] <= REF.LEN + 0.01 && cr[1] - cr[0] >= REF.LEN - 0.6,
      (REF.LEN - 0.6) + '〜' + REF.LEN + 'm', (cr[1] - cr[0]).toFixed(3) + 'm');
 }
