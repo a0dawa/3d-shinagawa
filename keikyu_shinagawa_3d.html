@@ -5722,6 +5722,9 @@ const M_HL_OFF=mkMat('MeshLambertMaterial',{color:k8hex(.33,.32,.30)});
 const M_TL_OFF=mkMat('MeshLambertMaterial',{color:k8hex(.35,.05,.05)});
 const M_PASS=mkMat('MeshBasicMaterial',{color:0xffffff});                       // 識別灯(点灯=白)
 const M_PASS_OFF=mkMat('MeshLambertMaterial',{color:k8hex(.30,.30,.29)});       // 消灯=レンズの灰
+const M_PASS21=mkMat('MeshBasicMaterial',{color:srgb(0xff8a2a),toneMapped:false});   // 2100形の急行灯(点灯=橙。写真。色調補正で白く飛ばさない)
+const M_PASS21_GLOW=mkMat('MeshBasicMaterial',{color:k8hex(.40,.15,.02),blending:THREE.AdditiveBlending,
+                 transparent:true,depthWrite:false,toneMapped:false});                    // その淡い光(橙)
 
 /* ---- 9-8. 文字(表示器・車番・ロゴ)はキャンバスに描いて貼る -------------------- */
 const K8_FONT='"IPAGothic","Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif';
@@ -5869,6 +5872,40 @@ function k8SideLed(kind,dest,w,h){
     k8fitText(cx,k8KindTxt(kind),w*0.155,h/2,w*0.22*1.15,h*0.70*1.15,'bold 64px '+K8_FONT);
     cx.fillStyle='#ff8c14';
     k8fitText(cx,k8DestTxt(dest),w*0.645,h/2,w*0.62*1.15,h*0.62*1.15,'bold 64px '+K8_FONT);
+  });
+}
+/* 2100形の前面の LED(写真:黒地に白い文字。種別は種別の色の地に白い文字。運行番号は赤い文字)。bg=地の色 */
+const K21_KIND_BG={'快特':'#169a48','普通':'#030304'};   // 快特=緑地(写真)。普通=黒地(推定)
+function k21Led(txt,fg,bg,w,h){
+  return k8Tex('k21led'+txt+fg+bg+w+'x'+h,w,h,function(cx){
+    cx.fillStyle=bg; cx.fillRect(0,0,w,h);
+    cx.fillStyle=fg; k8fitText(cx,txt,w/2,h/2,w*.92,h*.72,'bold '+h+'px '+K8_FONT);
+  });
+}
+// 行先の字の間:2文字は全角1つ・3文字は半角1つ空ける(写真の「三 崎 口」)。4文字以上は詰める
+function k21DestTxt(d){ const a=[...d]; return a.length===2?a.join('\u3000'):(a.length===3?a.join(' '):d); }
+/* ワイパーカバーの「2100」(公表:スリット状の打ち抜き文字)。写真:黒い斜体の字に横の細いすき間(地の色)が5本。
+   字の外は透明(シートの alphaTest)にして、アイボリーの車体の上に重ねる */
+function k21Slit2100(w,h){
+  return k8Paint('k21w2100_'+w+'x'+h,w,h,function(cx){
+    cx.fillStyle='#141414';
+    // 写真の字は太い:少しずつずらして重ね描きして太らせる(ずらす量 d は字の高さの4%)
+    const d=Math.max(1,Math.round(h*.04));
+    for(const [dx,dy] of [[0,0],[d,0],[-d,0],[0,d],[0,-d],[d,d],[-d,-d],[d,-d],[-d,d]])
+      k8fitText(cx,'2100',w/2+dx,h/2+dy,w-2*d,h-2*d,'bold italic '+h+'px Arial,Helvetica,sans-serif',0.18,true);
+    cx.globalCompositeOperation='destination-out';           // すき間(打ち抜きの間の残り)を透明に
+    const per=h/5.6;                                            // 黒6段・すき間5段(黒0.6:すき間0.4)
+    for(let k=0;k<5;k++){ const y=per*(0.6+k); cx.fillRect(0,y,w,per*0.4); }
+    cx.globalCompositeOperation='source-over';
+  });
+}
+// 非常扉のアイボリーの車番の下2桁(公表。書体は「2100」に合わせた=斜体。写真は打ち抜きでない黒の字)
+function k21CarNo(num,w,h){
+  const t=String(num).slice(-2);
+  return k8Paint('k21carno'+t+'_'+w+'x'+h,w,h,function(cx){
+    cx.fillStyle='#141414'; const d=Math.max(1,Math.round(h*.04));     // 「2100」と同じく少し太らせる
+    for(const [dx,dy] of [[0,0],[d,0],[-d,0],[0,d],[0,-d]])
+      k8fitText(cx,t,w/2+dx,h/2+dy,w-2*d,h-2*d,'bold italic '+h+'px Arial,Helvetica,sans-serif',0.18,true);
   });
 }
 function k8FrontNum(num,w,h,keep){          // keep=字形の縦横比を保つ(枠いっぱいに引き伸ばさない)
@@ -6276,30 +6313,37 @@ const K21={
   HWB:1.39,                              // 車体半幅(車体幅2,780。推定)
   Z_BOT:1.00, Z_FLR:1.153,               // 車体すそ(推定)・床面(公表値 1,153)
   Z_SH0:3.30, Z_CROWN:3.645,             // 側面の上端・屋根(推定)
-  WZ0:2.02, WZ1:2.86,                    // 側窓の下端・上端(推定)
-  DWZ0:1.95, DWZ1:2.86,                  // 扉窓の下端・上端(推定)
-  DZ1:2.95, DOOR_HW:0.60,                // 客用扉の上端・開口の半幅(扉幅1.2m)
+  WZ0:2.00, WZ1:2.95,                    // 側窓の下端・上端(天地 950mm は公表値。位置は写真の読み取り)
+  DWZ0:1.92, DWZ1:2.93,                  // 扉窓の下端・上端(写真の読み取り)
+  DZ1:3.00, DOOR_HW:0.60,                // 客用扉の上端(写真の読み取り)・開口の半幅(扉幅1,200 は公表値)
   FW:0.017, DWIN:[0.10,0.50],            // 窓枠の見付け/扉窓(扉中心からの距離)
   WIN:[0,0.935], END_WIN:[5.63,8.30],    // (9000系の名残。窓は k21SideWindows が並べる)
-  RED:[1.90,2.98], BLUE:[1.5,1.5],       // RED=窓まわりの白い帯(シェーダの C_RED を白にする)/BLUE=無し(幅0)
+  RED:[1.75,3.09], BLUE:[1.5,1.5],       // RED=側面の窓回りのアイボリーの帯(公表:窓回りをアイボリー。高さは写真)/BLUE=無し(幅0)
+  FBAND:[1.62,2.01],                     // 前面の窓の下のアイボリー(ワイパーカバー)の下端・上端(写真。上端=窓の下端)
   FBLUE0:1.5, BLUE_TAPER:[8.18,8.45],
   IVORY_X:99,                            // 前頭部の塗り分けは無い(車体と同じ赤)
-  CREW:[7.52,8.00], CREW_Z:[1.16,2.95], CREW_WIN:[7.58,7.94,2.02,2.80],   // 乗務員扉・その窓(推定)
+  CREW:[7.52,8.00], CREW_Z:[1.16,3.00], CREW_WIN:[7.58,7.94,2.00,2.95],   // 乗務員扉・その窓(高さは側窓にそろえた。推定)
   HANDRAIL:[8.063,7.467,1.292,2.459],    // 乗務員扉の前後の手すり
   WRAP_X:8.40,                           // 前面の黒い窓が側面へ回り込む後端(推定)
-  NOSE_D:0.16, NOSE_N:6,                 // 前面の角の後退の量と形
-  FWIN:[-0.5,1.24,2.01,3.49],            // 前面の黒い窓 |y| 内縁(負=中央で左右が切れずにつながる)・角の始まり / z 下端・上端(写真)
-  FMUL:[-0.46,0.03],                     // 前面の窓の縦の仕切り:中心 y(負=向かって左)・半幅(写真)
-  FPANEL:[-1.28,-0.46,1.09],             // 窓の下の左寄りの縦長の枠の線:左右の y・下端 z(写真。上は窓の下端まで)
+  NOSE_D:0.26, NOSE_N:4,                 // 前面の角の後退の量と形(2100形の写真 2枚:角は大きく丸く側面へ回る。推定)
+  FWIN:[-0.5,1.30,2.01,3.49],            // 前面の黒い窓 |y| 内縁(負=中央で左右が切れずにつながる)・外縁(写真:窓の外は車体色の角。側面へ回り込まない)/ z 下端・上端(写真)
+  FMUL:[-0.50,0.035],                    // 前面の窓の縦の仕切り(非常扉の窓の右の枠):中心 y(負=向かって左)・半幅(写真)
+  FPANEL:[-1.28,-0.435,1.098],           // 非常扉(公表:正面非常扉)の窓の下の縁の線:左右の y・下端 z(写真。上は窓の下端まで)
   FDWIN:[0.0,2.0,2.0],                   // 非常扉の窓(無し)
   FDOOR:[0,0,1.15,3.0],                  // 非常扉の枠(無し)
-  FLAMP:[0.64,1.16,1.18,1.44],           // 窓の下の灯火のケース |y| / z(写真)
-  FHL:[1.00,1.20], FHL_Z:[3.11,3.25],    // 前照灯:窓の中の上の両隅 |y| / z(写真)
-  FTL:[0.67,0.95],                       // 尾灯:ケースの内寄り |y|(写真で消灯の部分。z はケースの中)
-  FDEST:[0.19,0.82,3.13,3.32],           // 行先表示器(窓の上部の右寄り。写真)
-  FKIND:[-0.35,-0.06,3.13,3.32],         // 種別表示器(仕切りのすぐ右。写真)
-  FNUM:[-0.92,-0.56,3.13,3.32],          // 車号(仕切りの左。写真ではここに運行番号)
-  FPASS:[[-1.07,-0.98],[0.98,1.07],1.24,1.38],   // 通過標識灯:ケースの外寄り(写真で点いている部分)
+  /* 灯火(写真 2枚の読み取り。公表:窓の下のケースは尾灯と急行灯で、急行灯が外側)。形はどれも角の丸い四角 */
+  FLAMP:[0.65,1.18,1.16,1.44,0.13],      // 窓の下のケースの赤い縁 |y| / z / 角の半径
+  FLENS:[0.69,1.14,1.215,1.39,0.085],    // その中の黒いレンズ(両端が半円)|y| / z / 角の半径
+  FHL:[1.00,1.20], FHL_Z:[3.10,3.25], FHL_R:0.035,   // 前照灯:窓の中の上の両隅 |y| / z / 角の半径
+  FTL:[0.74,0.94], FTL_Z:[1.245,1.365],  // 尾灯:レンズの内寄り |y| / z
+  FPASS:[[-1.07,-0.99],[0.99,1.07],1.245,1.365],   // 急行灯:レンズの外寄り(写真で橙に点いている部分)
+  /* 表示器(写真。2015年に前面は LED 化=公表)。左から 運行番号・種別(快特=緑地に白)・行先(黒地に白) */
+  FDEST:[0.17,0.82,3.14,3.30],           // 行先表示器
+  FKIND:[-0.354,-0.056,3.12,3.33],       // 種別表示器(仕切りのすぐ右)
+  FNUM:[-0.92,-0.56,3.11,3.32],          // 運行番号表示器(仕切りの左)
+  /* 前面のアイボリーの文字(公表:ワイパーカバーに形式名「2100」のスリット状の打ち抜き文字・非常扉の白色部に車番の下2桁) */
+  F2100:[0.214,1.183,1.704,1.983],       // 「2100」の外接矩形 y / z(写真)
+  FCARNO:[-0.745,-0.485,1.666,1.816],    // 車番の下2桁の外接矩形 y / z(写真)
   FLOGO:[0.62,1.08,1.80,1.92], FLOGO_SL:0.05,    // (使わない。ロゴは描かない)
   FWIPER:[0.70,1.98,0.40,2.60],          // ワイパー:付け根 |y|・z / 先 |y|・z
   FDOOR_R:0.035,
@@ -6384,6 +6428,23 @@ function k21patch(B,z0,z1,y0,y1,off,n,col){
     B.quad(P(ya,z0),P(yb,z0),P(yb,z1),P(ya,z1),col,[[ua,0],[ub,0],[ub,1],[ua,1]]);
   }
 }
+/* 前面の曲面に沿った角の丸い四角(灯火・ケース)。z の行を端ほど細かく切り、行ごとに角の丸みのぶん左右を詰めて、
+   面(k21nose)の上に off だけ浮かせて張る。UV は外接矩形の 0〜1(文字を貼る面にも使える)。r=0 なら四角 */
+function k21rrect(B,z0,z1,y0,y1,r,off,col,nz,ny){
+  nz=nz||10; ny=ny||6; r=Math.max(0,Math.min(r||0,(z1-z0)/2,(y1-y0)/2));
+  const hw=K21.HWB, P=(y,z)=>[k21nose(z,y/hw,hw)+off,y,z];
+  const uv=(y,z)=>[(y-y0)/(y1-y0),(z-z0)/(z1-z0)];
+  const inset=z=>{ const d=Math.min(z-z0,z1-z); return d>=r?0:r-Math.sqrt(Math.max(0,r*r-(r-d)*(r-d))); };
+  const Z=[]; for(let i=0;i<=nz;i++) Z.push(z0+(z1-z0)*(1-Math.cos(Math.PI*i/nz))/2);   // 端ほど細かく
+  for(let i=0;i<nz;i++){
+    const za=Z[i], zb=Z[i+1], ia=inset(za), ib=inset(zb);
+    for(let j=0;j<ny;j++){
+      const t0=j/ny, t1=(j+1)/ny;
+      const ya0=y0+ia+(y1-y0-2*ia)*t0, ya1=y0+ia+(y1-y0-2*ia)*t1, yb0=y0+ib+(y1-y0-2*ib)*t0, yb1=y0+ib+(y1-y0-2*ib)*t1;
+      B.quad(P(ya0,za),P(ya1,za),P(yb1,zb),P(yb0,zb),col,[uv(ya0,za),uv(ya1,za),uv(yb1,zb),uv(yb0,zb)]);
+    }
+  }
+}
 // 前面の曲面に沿った線:折れ線 pts=[[y,z],...] を幅 w の帯にする(扉の縁の角丸など)。off=面からの浮かせ量
 function k21stroke(B,pts,w,off,col){
   const hw=K21.HWB, h=w/2, P=(y,z)=>[k21nose(z,y/hw,hw)+off,y,z];
@@ -6404,14 +6465,14 @@ function k21ShaderDefs(){
     '#define IVORY_X '+f(K21.IVORY_X), '#define WRAP_X '+f(K21.WRAP_X),
     '#define CREW0 '+f(K21.CREW[0]), '#define CREW1 '+f(K21.CREW[1]), '#define CREWZ0 '+f(K21.CREW_Z[0]), '#define CREWZ1 '+f(K21.CREW_Z[1]),
     '#define FBLUE0 '+f(K21.FBLUE0), '#define BT1 '+f(K21.BLUE_TAPER[0]), '#define BT0 '+f(K21.BLUE_TAPER[1]), '#define XC0 '+f(K21_XC0),
-    '#define FDOOR_HW '+f(K21.FDOOR_HW),
+    '#define FDOOR_HW '+f(K21.FDOOR_HW), '#define FB0 '+f(K21.FBAND[0]), '#define FB1 '+f(K21.FBAND[1]),
     '#define FW0 '+f(K21.FWIN[0]), '#define FW1 '+f(K21.FWIN[1]), '#define FWZ0 '+f(K21.FWIN[2]), '#define FWZ1 '+f(K21.FWIN[3]),
     '#define FDW '+f(K21.FDWIN[0]), '#define FDWZ0 '+f(K21.FDWIN[1]), '#define FDWZ1 '+f(K21.FDWIN[2]),
     '#define FDF0 '+f(K21.FDOOR[0]), '#define FDF1 '+f(K21.FDOOR[1]), '#define FDZ0 '+f(K21.FDOOR[2]), '#define FDZ1 '+f(K21.FDOOR[3]),
     '#define FBOT '+f(K21.FBOT), '#define FCPL '+f(K21.FCPL), '#define FANTZ1 '+f(K21.FANTI[3]),
     '#define DOORX vec4('+[K21.DOORX[0],K21.DOORX[0],K21.DOORX[1],K21.DOORX[1]].map(f).join(',')+')',   // 2扉(同じ扉を2回見る)
-    ...k8ColorDefs(k8lin(.08,.09,.11),{C_STL:k8lin(.80,.06,.14), C_DOOR:k8lin(.80,.06,.14), C_RED:k8lin(.93,.93,.91),
-                                        C_IVORY:k8lin(.80,.06,.14), C_ROOF:k8lin(.56,.58,.61)}),   // 車体=京急の赤・帯=白(推定)   // 前面の窓(写真:映り込みで濃い灰。枠の黒と見分ける)
+    ...k8ColorDefs(k8lin(.08,.09,.11),{C_STL:k8lin(.80,.06,.14), C_DOOR:k8lin(.80,.06,.14), C_RED:k8lin(.88,.82,.76),
+                                        C_IVORY:k8lin(.80,.06,.14), C_ROOF:k8lin(.56,.58,.61)}),   // 車体=京急の赤・帯=アイボリー(写真の色 RGB 230,223,217 の比。昼の光で白く飛ばない明るさ)   // 前面の窓(写真:映り込みで濃い灰。枠の黒と見分ける)
     '#define C_PILLAR '+c3(k8lin(.80,.81,.82)), '#define FWP 0.008',   // 側窓の中央の柱(車体より明るい金属)と脇のゴムの幅
     '#define NWIN 26',
   ].join('\n')+'\n';
@@ -6464,7 +6525,7 @@ const K21_FRAG_MAIN=`
 #ifdef K8_CAB
   float ivr=step(IVORY_X,X);
   col=mix(col,C_IVORY,ivr); painted=max(painted,ivr);
-  float fface=step(.55,Nn.x)*step(K8_L2-1.,X);   // 前を向く面(前面)は屋根の色にしない(2100形の写真:窓の上も赤)
+  float fface=step(.20,Nn.x)*step(K8_L2-1.,X);   // 前を向く面(前面と、屋根へ回る丸い所)は屋根の色にしない(2100形の写真:窓の上は縁まで赤)
   col=mix(col,C_ROOF,roof*(1.-ivr)*(1.-fface));
 #else
   col=mix(col,C_ROOF,roof);
@@ -6490,7 +6551,13 @@ const K21_FRAG_MAIN=`
   /* 前面(写真の実測 ftex9.png):アイボリーの面に、左右の前面窓と中央扉の窓(黒い枠のゴム)。
      帯は扉の枠(|y| FDF0〜FDF1)のアイボリーで切れる。前面の下端より下は暗い床下、扉の下は連結器まわりの開口 */
   float tt=clamp((Nn.x-.3)/.4,0.,1.), ay=abs(Y);
-  if(X>WRAP_X && Z>RED0-.01 && Z<RED1+.01) col=C_STL;   // 白い帯は側面だけ(前面と角は赤)
+  /* 2100形(写真):乗務員扉より前(角と前面)のアイボリーは窓の下のワイパーカバー(FB0〜FB1)だけ。その上は赤。
+     下端は角で側面の帯の下端 RED0 から前面の FB0 へ下がる(正面の向き tt で混ぜる) */
+  if(X>CREW1+.004){
+    float fb0=mix(RED0,FB0,tt);
+    if(Z>fb0 && Z<FB1+.004){ col=C_RED; painted=1.; }
+    else if(Z>RED0-.01 && Z<RED1+.01) col=C_STL;
+  }
   if(tt>.5 && X>K8_L2-.8){
     if(ay>FDF0 && ay<FDF1 && Z>FBLUE0-.012 && Z<RED1+.012){ col=C_IVORY; painted=1.; }
     if(ay<FDF0 && abs(Z-FDZ0)<.006) col=C_RUB;   // 戸の下辺(上辺は角丸の線でジオメトリが引く)
@@ -6502,7 +6569,8 @@ const K21_FRAG_MAIN=`
      面に沿って伸ばした横の座標 u(前面と角は |y|、側面は 半幅+(角の終わり XC0 − X))で窓を描く。外側の角は大きく丸い */
   if(X>WRAP_X-.05 && Z>FWZ0-.01 && Z<FWZ1+.01){
     float u=ay+max(0.,XC0-X), ro=step(.9,u);
-    float wo=k8rr(vec2(u,Z),vec4(FW0,K8_HWB+XC0-WRAP_X,FWZ0,FWZ1),mix(.10,.20,ro),mix(.06,.12,ro));
+    // 2100形(写真 2枚):窓は前面の |y|=FW1 で終わり、その外の角は車体色。外の上の角は大きく丸く(屋根の丸みに沿う)、下の角は小さい
+    float wo=k8rr(vec2(u,Z),vec4(FW0,FW1,FWZ0,FWZ1),mix(.10,.30,ro),mix(.04,.05,ro));
     if(wo<=0.){ if(wo>-.035){ col=C_RUB; painted=1.; } else { col=C_FGLASS; painted=0.; k8Spec=1.6; } }
   }
 #endif
@@ -6546,13 +6614,19 @@ const K21_PLATE_Z=[3.02,3.14], K21_LOGO_Z=[3.02,3.14];   // 車号(白い帯の�
 function k21FrontGeos(){
   const G={}, mk=f=>{const B=new K8B(); f(B); return B.geo();}, hw=K21.HWB;
   const L=K21.FLAMP, side=(sg,a,b)=>[Math.min(sg*a,sg*b),Math.max(sg*a,sg*b)];
-  // 灯火:窓の下の横長のケース(内=尾灯・外=通過標識灯)と、窓の中の上の両隅の前照灯(写真)
-  G.case=mk(B=>{for(const sg of[-1,1]){const r=side(sg,L[0],L[1]); k21patch(B,L[2],L[3],r[0],r[1],.004,6,K8C.black);}});
-  const H=K21.FHL, HZ=K21.FHL_Z, T=K21.FTL;
-  G.hl  =mk(B=>{for(const sg of[-1,1]){const r=side(sg,H[0],H[1]); k21patch(B,HZ[0],HZ[1],r[0],r[1],.009,6,[1,1,1]);}});
-  G.tl  =mk(B=>{for(const sg of[-1,1]){const r=side(sg,T[0],T[1]); k21patch(B,L[2]+.025,L[3]-.025,r[0],r[1],.009,6,[1,1,1]);}});
-  G.hlGlow=mk(B=>{for(const sg of[-1,1]){const r=side(sg,H[0]-.015,H[1]+.015); k21patch(B,HZ[0]-.015,HZ[1]+.015,r[0],r[1],.010,6,[1,1,1]);}});
-  G.tlGlow=mk(B=>{for(const sg of[-1,1]){const r=side(sg,T[0]-.01,T[1]+.01); k21patch(B,L[2]+.01,L[3]-.01,r[0],r[1],.010,6,[1,1,1]);}});
+  /* 灯火(写真 2枚):窓の下のケース=車体色の赤い縁(角の丸い四角)・銀の細い縁・黒いレンズ(両端が半円)。レンズの中の
+     内寄り=尾灯・外寄り=急行灯(公表)。前照灯は窓の中の上の両隅の角の丸い四角 */
+  const LN=K21.FLENS, red=k8lin(.80,.06,.14), silver=k8lin(.70,.71,.72);
+  G.case=mk(B=>{for(const sg of[-1,1]){
+    const r=side(sg,L[0],L[1]), q=side(sg,LN[0]-.012,LN[1]+.012), n=side(sg,LN[0],LN[1]);
+    k21rrect(B,L[2],L[3],r[0],r[1],L[4],.010,red,12,8);                          // 赤い縁(車体から張り出す)
+    k21rrect(B,LN[2]-.012,LN[3]+.012,q[0],q[1],LN[4]+.012,.013,silver,12,8);     // 銀の細い縁
+    k21rrect(B,LN[2],LN[3],n[0],n[1],LN[4],.015,K8C.black,12,8);}});             // 黒いレンズ
+  const H=K21.FHL, HZ=K21.FHL_Z, HR=K21.FHL_R, T=K21.FTL, TZ=K21.FTL_Z;
+  G.hl  =mk(B=>{for(const sg of[-1,1]){const r=side(sg,H[0],H[1]); k21rrect(B,HZ[0],HZ[1],r[0],r[1],HR,.009,[1,1,1],8,6);}});
+  G.tl  =mk(B=>{for(const sg of[-1,1]){const r=side(sg,T[0],T[1]); k21rrect(B,TZ[0],TZ[1],r[0],r[1],.02,.018,[1,1,1],8,6);}});
+  G.hlGlow=mk(B=>{for(const sg of[-1,1]){const r=side(sg,H[0]-.015,H[1]+.015); k21rrect(B,HZ[0]-.015,HZ[1]+.015,r[0],r[1],HR+.015,.010,[1,1,1],8,6);}});
+  G.tlGlow=mk(B=>{for(const sg of[-1,1]){const r=side(sg,T[0]-.01,T[1]+.01); k21rrect(B,TZ[0]-.01,TZ[1]+.01,r[0],r[1],.03,.019,[1,1,1],8,6);}});
   G.vc  =mk(B=>{
     // 中央の非常扉:戸の縁(|y|=FDOOR[0])と枠の外縁(|y|=FDOOR[1])の縦の線。帯の上と下に分けて引く(帯の切れ目はシェーダ)
     const fr=k8lin(.17,.17,.18), D=K21.FDOOR;
@@ -6600,12 +6674,13 @@ function k21FrontGeos(){
     B.box(xs-.6,xs+.08,.22,.40,.78,.92,K8C.under);
     B.box(K21.LEN/2-1.3,xs-.30,-1.2,1.2,.76,K21.Z_BOT,K8C.under);
   });
-  // 表示器:行先=扉の上・種別=向かって左の窓の上部(ガラスの内)。車号=向かって右の窓の上部。ロゴ=右の赤帯
+  // 表示器(窓の上部。ガラスの内):左から 運行番号(num)・種別(kind)・行先(dest)。前面の文字(ワイパーカバーの「2100」・車番)
   const pt=(R,off,n)=>mk(B=>k21patch(B,R[2],R[3],R[0],R[1],off,n,[1,1,1]));
   G.dest=pt(K21.FDEST,.003,4); G.kind=pt(K21.FKIND,.003,4); G.num=pt(K21.FNUM,.003,4); G.logo=pt(K21.FLOGO,.004,4);
-  const PS=K21.FPASS;                     // 識別灯と、点いたときの淡い光
-  G.pass    =mk(B=>{for(const r of PS.slice(0,2)) k21patch(B,PS[2],PS[3],r[0],r[1],.006,2,[1,1,1]);});
-  G.passGlow=mk(B=>{for(const r of PS.slice(0,2)) k21patch(B,PS[2]-.015,PS[3]+.015,r[0]-.015,r[1]+.015,.010,2,[1,1,1]);});
+  G.w2100=pt(K21.F2100,.003,8); G.carNo=pt(K21.FCARNO,.003,3);
+  const PS=K21.FPASS;                     // 急行灯(レンズの外寄り)と、点いたときの淡い光
+  G.pass    =mk(B=>{for(const r of PS.slice(0,2)) k21rrect(B,PS[2],PS[3],r[0],r[1],.015,.018,[1,1,1],8,4);});
+  G.passGlow=mk(B=>{for(const r of PS.slice(0,2)) k21rrect(B,PS[2]-.012,PS[3]+.012,r[0]-.012,r[1]+.012,.025,.019,[1,1,1],8,4);});
   return G;
 }
 /* 前面の KEIO ロゴ(写真 9755):白い平行四辺形の板に、黒の太い斜体の文字。板の辺と文字は同じ傾き。
@@ -6636,7 +6711,21 @@ function k21Logo(w,h){
   });
 }
 // 9000系の冷房装置(上端4.017 公表・長さ4.20 推定)。凝縮器のファン1つの形
-function k21AcGeo(){ return acGeoOf(K21.AC_L,K21.AC_TOP,K21.Z_CROWN-.06,[0],.50); }
+/* 2100形の冷房装置:公表「装置の前後に FRP 製の曲面カバーを設置し、丸みを強調」。写真(2133編成):白っぽい一体のカバーで、
+   上の角は丸く、前後の端は斜めに下がる。断面は |y|≦W の超楕円(上が平ら・肩が丸い)、長さ方向は端の e だけ楕円で下げる。
+   中央の頂部の高さ=AC_TOP(公表 4,026.5)。長さ・幅・端の形は推定 */
+function k21AcGeo(){
+  const B=new K8B(), L=K21.AC_L, Lh=L/2, W=.95, z0=K21.Z_CROWN-.06, zt=K21.AC_TOP, e=.75;
+  const col=k8lin(.84,.85,.86), NY=14, NX=18;
+  const ys=[]; for(let j=0;j<=NY;j++) ys.push(-W+2*W*j/NY);
+  const hy=y=>Math.pow(Math.max(0,1-Math.pow(Math.abs(y)/W,4)),.25);                 // 断面の高さの割合(端で0)
+  const xs=[]; for(let i=0;i<=NX;i++) xs.push(-Lh+L*(1-Math.cos(Math.PI*i/NX))/2);   // 端ほど細かく
+  const hx=x=>{ const d=Math.abs(x)-(Lh-e); return d<=0?1:Math.sqrt(Math.max(0,1-(d/e)*(d/e))); };   // 端の下がり
+  const P=(x,y)=>[x,y,z0+(zt-z0)*hx(x)*hy(y)];
+  for(let i=0;i<NX;i++) for(let j=0;j<NY;j++)
+    B.quad(P(xs[i],ys[j]),P(xs[i+1],ys[j]),P(xs[i+1],ys[j+1]),P(xs[i],ys[j+1]),col);
+  return B.geo();
+}
 const K21GEO=(function(){
   const rng=k8Rng(9000);
   const G={
@@ -6795,7 +6884,9 @@ function makeCar(opt){
     if(!S21) L.push([GEO.logo,-xn,k8Logo(256,72)]);         // 2100形は会社のロゴを描かない(車番だけ)
     if(cab){
       const F=GEO.front;
-      if(S21) L.push([F.num,0,k8FrontNum(o.num,Math.round((K21.FNUM[1]-K21.FNUM[0])*640),Math.round((K21.FNUM[3]-K21.FNUM[2])*640),true)]);   // 字形のまま(引き伸ばさない)
+      // 2100形:ワイパーカバーの「2100」と非常扉の車番の下2桁(画像の縦横比=貼る面。1m=640px)
+      const px2=R=>[Math.round((R[1]-R[0])*640),Math.round((R[3]-R[2])*640)];
+      if(S21) L.push([F.w2100,0,k21Slit2100(...px2(K21.F2100))],[F.carNo,0,k21CarNo(o.num,...px2(K21.FCARNO))]);
       else L.push([GEO.cabLogo,0,k8Logo(384,96)],[F.num,0,k8FrontNum(o.num)],[F.logo,0,k8Logo(256,40)]);
     }
     const sm=k8Sheet(SK+(cab?'c':'m')+o.num,L.map(a=>a[2]));
@@ -6812,14 +6903,15 @@ function makeCar(opt){
     if(S21){                                                 // 9000系:行先=扉の上・種別=向かって左の窓の上部(写真)
       // 画像の縦横比は貼る面(K21.FDEST・FKIND・FNUM)と同じに(1m=640px)
       const px=(R)=>[Math.round((R[1]-R[0])*640),Math.round((R[3]-R[2])*640)];
-      addFine(F.dest,lit?k8Led(k8DestTxt(o.sign.dest),'#ff8c14',...px(K21.FDEST)):K8M.ledOff,sh);
-      addFine(F.kind,lit?k8Led(k8KindTxt(o.sign.kind),K8_KIND_COLORS[o.sign.kind]||'#ff2e14',...px(K21.FKIND)):K8M.ledOff,sh);
+      addFine(F.dest,lit?k21Led(k21DestTxt(o.sign.dest),'#f4f2ff','#030304',...px(K21.FDEST)):K8M.ledOff,sh);
+      addFine(F.kind,lit?k21Led(o.sign.kind,'#ffffff',K21_KIND_BG[o.sign.kind]||'#030304',...px(K21.FKIND)):K8M.ledOff,sh);
+      addFine(F.num,lit&&o.sign.run?k21Led(o.sign.run,'#ff5a48','#030304',...px(K21.FNUM)):K8M.ledOff,sh);   // 運行番号(赤い文字。写真)
     }else{
       addFine(F.dest,lit?k8Led(k8DestTxt(o.sign.dest),'#ff8c14',256,68,K8_FRONT_TXT):K8M.ledOff,sh);
       addFine(F.kind,lit?k8Led(k8KindTxt(o.sign.kind),K8_KIND_COLORS[o.sign.kind]||'#ff2e14',192,68,K8_FRONT_TXT):K8M.ledOff,sh);
     }
-    addFine(F.pass,k8PassOn(o)?M_PASS:M_PASS_OFF,sh);          // 識別灯(各停以外で点く)
-    if(k8PassOn(o)) addFine(F.passGlow,K8M.hlGlow,sh);
+    addFine(F.pass,k8PassOn(o)?(S21?M_PASS21:M_PASS):M_PASS_OFF,sh);          // 識別灯(各停以外で点く)。2100形は急行灯(橙)
+    if(k8PassOn(o)) addFine(F.passGlow,S21?M_PASS21_GLOW:K8M.hlGlow,sh);
   }
   // 台車・床下・冷房・幌。台車・床下・冷房・パンタは遠く(LOD_FAR より先)では描かない(1両あたり描画5〜9回・数千三角形。
   // 1.5km 先では数画素にしかならない。全体俯瞰で50両ぶん効く)
@@ -6913,16 +7005,16 @@ const trains=[];
 /* 品川版:2100形8両の快特4本(品川だけに停まる。推定の模式)。dir>0=+s=泉岳寺方面(京急の上り)・dir<0=三崎口方面(下り)。
    編成は浦賀方から n 両目で決まる(k8CarSpec)。+s へ走る列車の先頭 j=0 は泉岳寺方=8号車 */
 // +s へ走る列車は運転モードの開始位置(rideS の初め −200)と重ならないよう、その 800m 以上先から出す
-const TRAIN_DEF=[[1,600,'快特','2101F','泉岳寺'],[1,1700,'快特','2109F','青砥'],
-                 [-1,1950,'快特','2117F','三崎口'],[-1,600,'快特','2125F','京急久里浜']];
+const TRAIN_DEF=[[1,600,'快特','2101F','泉岳寺','1A'],[1,1700,'快特','2109F','青砥','13A'],
+                 [-1,1950,'快特','2117F','三崎口','5A'],[-1,600,'快特','2125F','京急久里浜','9A']];   // 末尾=前面の運行番号(模式)
 const TRAIN_CARS=8;
 TRAIN_DEF.forEach(function(a){
-  const dir=a[0], xs=a[1], kind=a[2], form=a[3], dest=a[4], cars=[], N=TRAIN_CARS;
+  const dir=a[0], xs=a[1], kind=a[2], form=a[3], dest=a[4], run=a[5], cars=[], N=TRAIN_CARS;
   for(let j=0;j<N;j++){
     const n=dir>0?N-j:j+1, sp=k8CarSpec(form,n);
     cars.push(makeCar({cabF:j===0, cabR:j===N-1, panto:sp.panto, panto2:sp.panto2, motor:sp.motor, num:sp.num, series:sp.series,
       hachi:dir>0?1:-1, lights:j===0?'head':(j===N-1?'tail':'off'),
-      sign:{kind:kind, dest:dest}, crowd:j%3}));
+      sign:{kind:kind, dest:dest, run:run}, crowd:j%3}));
   }
   const reset=(dir>0)?(DOM.x0-210):(DOM.x1+210);
   // st=状態, v=速度[m/s], dwell=停車残り時間, target=次の停止位置s
