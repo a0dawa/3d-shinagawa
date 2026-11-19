@@ -235,3 +235,14 @@ bash tools/verify_all.sh
 
 `keikyu_shinagawa_3d.html` と同じフォルダに `plateau_bldg.js`・`plateau_land.js`・`plateau_dem.js`・`gsi_rail.js` を置いてブラウザで開く
 (Three.js を cdnjs、航空写真を国土地理院から読むので初回はネット接続が必要)。スマホは横画面。
+
+## 上流(3d-keio)との関係と、京王の進歩の取り込み
+
+このリポジトリは姉妹作 3d-keio(`a0dawa/3d-keio`。京王線の3Dビューア。エンジン・作業ルール・検証方式の元)を土台にしている。
+京王では機能が増え続けるので、**取り込み状況をルートの `UPSTREAM.json` に記録**している。京王の最新を取り込みたいときは、
+スキル `port-from-keio`(`.claude/skills/port-from-keio/SKILL.md`)の手順に従う。要点:
+1. 上流を取得(`a0dawa/3d-keio` を `add_repo`・clone。最新は作業ブランチ `claude/blender-files-push-65wzu0`)。
+2. `python3 -I <3d-keio>/tools/upstream_status.py status . --keio <3d-keio>` で、済・一部・未と、次に移せる機能を見る。
+3. 京王の `reference/porting/features.json`(機能の目録)と `CLAUDE.md` の節を読み、**京王の値は持ち込まず基準値は新しい資料から検証側に**書いて移す。
+4. 1回の編集ごとにこのリポジトリの検証を通し、`UPSTREAM.json` を更新する。
+京王の作業ルール・躓き集(`TEMPLATE.md`・`CLAUDE.md`)は、迷ったときの根拠としてそのまま使える。

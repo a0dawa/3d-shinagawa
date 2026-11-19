@@ -1,0 +1,8 @@
+{
+  "_doc": "3d-keio(上流)のどこまでをこのリポジトリへ取り込んだかの記録。取り込んだら audited と keio_commit を更新する。overrides は自動検出(tools/upstream_status.py の status)より優先:status は adopted/partial/todo/n/a と note。京王でできた機能の目録は 3d-keio の reference/porting/features.json",
+  "upstream": "a0dawa/3d-keio",
+  "upstream_branch": "claude/blender-files-push-65wzu0",
+  "audited": "2026-11-19",
+  "keio_commit": "588fa98",
+  "overrides": {}
+}
