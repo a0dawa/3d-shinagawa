@@ -8867,8 +8867,111 @@ function loop(now){
   // あり、笹塚の留置車を高精細で描いて車番の画像まで作っていた)
   for(const t of trains) for(const c of t.cars) if(c.visible) lodCar(c);
   for(const c of parkedCars) lodCar(c);
-  renderer.render(scene,camera);
+  postRender();           // 画面の後処理(12b章)を通して描く
 }
+
+/* ============ 12b. 画面の後処理(2026-11 利用者指示「更なるクオリティアップ」) ============
+   描画をいったん中間の画像(色=半精度の浮動小数・奥行き=奥行きの画像)へ描き、全画面の描画を重ねて仕上げる:
+   ① 接地の陰(SAO:奥行きから位置と面の向きを戻し、周りの 12点が面の上に出ているほど暗くする。半分の解像度で求めて 4×4 でならす。
+      半径 POST.R=1.0m・強さ POST.ao=0.7。空(奥行き=1)と 250m より遠くは掛けない)
+   ② 光のにじみ(明るさ POST.th を超えた所を 1/4 の解像度に取り出し、横と縦のぼかしを2段=1/4・1/8 で足す。夜は強く POST.bloomN、昼は弱く POST.bloomD)
+   ③ sRGB へ(r128 は中間の画像に描くときもトーンマップ(ACES)は掛け、出力の符号化だけが線形になる。画面へ直接描くときと同じ式 LinearTosRGB。
+      2026-11 に確かめた:ここで ACES を掛け直すと全体が 15〜24/255 明るくなる=二重に掛かる)
+   ④ FXAA(縁のギザギザ。中間の画像は MSAA が効かないので)
+   画面のループと撮影(CINE.render)が postRender() を呼ぶ。照合の描画(⑩⑪の照合の renderer.render)には掛からない
+   (⑪の「繋がらないとき ON と OFF が同じ」は CINE.render=後処理を通した絵どうしで比べる)。
+   描画の数(renderer.info)は場面(従来どおり影マップは数えない)と後処理の 9回の合計にする(⑩)。スマホ・WebGL1 は使わない(POST.on=false で従来の1回の描画) */
+const POST={on:!IS_MOBILE, ao:0.7, R:1.0, th:0.82, bloomN:0.85, bloomD:0.12, rt:null, w:0, h:0};
+(function(){
+  if(!POST.on) return;
+  const gl=renderer.getContext&&renderer.getContext();
+  if(!renderer.capabilities||!renderer.capabilities.isWebGL2){ POST.on=false; return; }
+  const FSQ_V='varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.,1.); }';
+  const quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),null); quad.frustumCulled=false;
+  const qs=new THREE.Scene(); qs.add(quad); const qc=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+  const mat=(frag,uni)=>new THREE.ShaderMaterial({uniforms:uni,vertexShader:FSQ_V,fragmentShader:frag,depthTest:false,depthWrite:false,toneMapped:false});
+  POST.mAO=mat(`
+    uniform sampler2D tD; uniform mat4 uPI, uP; uniform vec2 uRes; uniform float uR, uK; varying vec2 vUv;
+    vec3 vpos(vec2 uv){ float d=texture2D(tD,uv).x; vec4 c=vec4(uv*2.-1.,d*2.-1.,1.); vec4 v=uPI*c; return v.xyz/v.w; }
+    float h12(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
+    void main(){
+      float d=texture2D(tD,vUv).x; if(d>=0.99999){ gl_FragColor=vec4(1.); return; }
+      vec3 P=vpos(vUv); if(-P.z>250.){ gl_FragColor=vec4(1.); return; }
+      vec3 N=normalize(cross(dFdx(P),dFdy(P)));
+      float rp=uR*uP[1][1]/(-P.z)*0.5;                                 // 半径を画面の割合に
+      float a0=h12(gl_FragCoord.xy)*6.2832, occ=0.;
+      for(int i=0;i<12;i++){ float fi=float(i), t=(fi+0.5)/12., a=a0+fi*2.39996;
+        vec2 o=vec2(cos(a),sin(a))*rp*sqrt(t)*vec2(uRes.y/uRes.x,1.);
+        vec3 S=vpos(vUv+o)-P; float l=length(S);
+        occ+=max(0.,dot(N,S)/max(l,1e-3)-0.12)*smoothstep(uR*2.2,uR*0.6,l); }
+      float ao=clamp(1.-uK*occ/12.*1.6,0.,1.); gl_FragColor=vec4(ao,ao,ao,1.); }`,
+    {tD:{value:null},uPI:{value:new THREE.Matrix4()},uP:{value:new THREE.Matrix4()},uRes:{value:new THREE.Vector2()},uR:{value:POST.R},uK:{value:POST.ao}});
+  POST.mAOB=mat(`uniform sampler2D tA; uniform vec2 uTx; varying vec2 vUv;
+    void main(){ float s=0.; for(int i=-2;i<2;i++) for(int j=-2;j<2;j++) s+=texture2D(tA,vUv+(vec2(float(i),float(j))+0.5)*uTx).x; s/=16.; gl_FragColor=vec4(s,s,s,1.); }`,
+    {tA:{value:null},uTx:{value:new THREE.Vector2()}});
+  POST.mBR=mat(`uniform sampler2D tC; uniform float uTh; varying vec2 vUv;
+    void main(){ vec3 c=texture2D(tC,vUv).rgb; float l=max(c.r,max(c.g,c.b)); gl_FragColor=vec4(c*smoothstep(uTh,uTh+0.25,l),1.); }`,
+    {tC:{value:null},uTh:{value:POST.th}});
+  POST.mBL=mat(`uniform sampler2D tC; uniform vec2 uDir; varying vec2 vUv;
+    void main(){ vec3 s=texture2D(tC,vUv).rgb*0.227; s+=(texture2D(tC,vUv+uDir*1.385).rgb+texture2D(tC,vUv-uDir*1.385).rgb)*0.316;
+      s+=(texture2D(tC,vUv+uDir*3.231).rgb+texture2D(tC,vUv-uDir*3.231).rgb)*0.070; gl_FragColor=vec4(s,1.); }`,
+    {tC:{value:null},uDir:{value:new THREE.Vector2()}});
+  POST.mCO=mat(`uniform sampler2D tC, tA, tB1, tB2; uniform float uB; varying vec2 vUv;
+    vec3 toS(vec3 c){ return mix(c*12.92, 1.055*pow(c,vec3(0.41666))-0.055, step(0.0031308,c)); }
+    void main(){ vec3 c=texture2D(tC,vUv).rgb*texture2D(tA,vUv).x + (texture2D(tB1,vUv).rgb+texture2D(tB2,vUv).rgb)*uB;
+      gl_FragColor=vec4(toS(clamp(c,0.,1.)),1.); }`,
+    {tC:{value:null},tA:{value:null},tB1:{value:null},tB2:{value:null},uB:{value:0}});
+  POST.mFX=mat(`uniform sampler2D tC; uniform vec2 uTx; varying vec2 vUv;
+    float lu(vec3 c){ return dot(c,vec3(0.299,0.587,0.114)); }
+    void main(){ vec3 rgbM=texture2D(tC,vUv).rgb; float lM=lu(rgbM);
+      float lNW=lu(texture2D(tC,vUv+vec2(-1.,-1.)*uTx).rgb), lNE=lu(texture2D(tC,vUv+vec2(1.,-1.)*uTx).rgb),
+            lSW=lu(texture2D(tC,vUv+vec2(-1.,1.)*uTx).rgb),  lSE=lu(texture2D(tC,vUv+vec2(1.,1.)*uTx).rgb);
+      float mn=min(lM,min(min(lNW,lNE),min(lSW,lSE))), mx=max(lM,max(max(lNW,lNE),max(lSW,lSE)));
+      vec2 dir=vec2(-((lNW+lNE)-(lSW+lSE)),((lNW+lSW)-(lNE+lSE)));
+      float red=max((lNW+lNE+lSW+lSE)*0.25*0.125,1./128.), rcp=1./(min(abs(dir.x),abs(dir.y))+red);
+      dir=clamp(dir*rcp,vec2(-8.),vec2(8.))*uTx;
+      vec3 A=0.5*(texture2D(tC,vUv+dir*(1./3.-0.5)).rgb+texture2D(tC,vUv+dir*(2./3.-0.5)).rgb);
+      vec3 B=A*0.5+0.25*(texture2D(tC,vUv-dir*0.5).rgb+texture2D(tC,vUv+dir*0.5).rgb);
+      float lB=lu(B); gl_FragColor=vec4((lB<mn||lB>mx)?A:B,1.); }`,
+    {tC:{value:null},uTx:{value:new THREE.Vector2()}});
+  POST.quad=quad; POST.qs=qs; POST.qc=qc;
+})();
+function postSize(){
+  const v=renderer.getDrawingBufferSize(new THREE.Vector2()), w=Math.max(2,v.x|0), h=Math.max(2,v.y|0);
+  if(POST.rt&&POST.w===w&&POST.h===h) return;
+  for(const k of ['rt','tAO','tAOB','bA','bB','bC','bD','cmp']) if(POST[k]){ POST[k].dispose(); POST[k]=null; }
+  const T=(x,y,o)=>new THREE.WebGLRenderTarget(x,y,Object.assign({minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false,stencilBuffer:false},o||{}));
+  POST.rt=T(w,h,{type:THREE.HalfFloatType,depthBuffer:true}); POST.rt.depthTexture=new THREE.DepthTexture(w,h); POST.rt.depthTexture.type=THREE.UnsignedIntType;
+  POST.tAO=T(w>>1,h>>1); POST.tAOB=T(w>>1,h>>1);
+  POST.bA=T(w>>2,h>>2,{type:THREE.HalfFloatType}); POST.bB=T(w>>2,h>>2,{type:THREE.HalfFloatType});
+  POST.bC=T(w>>3,h>>3,{type:THREE.HalfFloatType}); POST.bD=T(w>>3,h>>3,{type:THREE.HalfFloatType});
+  POST.cmp=T(w,h); POST.w=w; POST.h=h;
+}
+function postRender(){
+  if(!POST.on||!POST.quad){ renderer.render(scene,camera); return; }
+  postSize();
+  const info=renderer.info, ar=info.autoReset;
+  const pass=(m,target)=>{ POST.quad.material=m; renderer.setRenderTarget(target); renderer.render(POST.qs,POST.qc); };
+  renderer.setRenderTarget(POST.rt); renderer.render(scene,camera);   // 描画の数はここで従来どおり数え直す(r128 は影マップの描画の後で数え直す)
+  info.autoReset=false;                                               // 後処理の 9回は場面の数に足す
+  // ① 接地の陰
+  const U=POST.mAO.uniforms; U.tD.value=POST.rt.depthTexture; U.uP.value.copy(camera.projectionMatrix); U.uPI.value.copy(camera.projectionMatrixInverse);
+  U.uRes.value.set(POST.w>>1,POST.h>>1); U.uK.value=POST.ao; pass(POST.mAO,POST.tAO);
+  POST.mAOB.uniforms.tA.value=POST.tAO.texture; POST.mAOB.uniforms.uTx.value.set(1/(POST.w>>1),1/(POST.h>>1)); pass(POST.mAOB,POST.tAOB);
+  // ② 光のにじみ
+  const night=!!NIGHT_ON, bk=night?POST.bloomN:POST.bloomD;
+  POST.mBR.uniforms.tC.value=POST.rt.texture; POST.mBR.uniforms.uTh.value=night?POST.th-0.12:POST.th; pass(POST.mBR,POST.bA);
+  const B=POST.mBL.uniforms;
+  B.tC.value=POST.bA.texture; B.uDir.value.set(1/(POST.w>>2),0); pass(POST.mBL,POST.bB);
+  B.tC.value=POST.bB.texture; B.uDir.value.set(0,1/(POST.h>>2)); pass(POST.mBL,POST.bA);
+  B.tC.value=POST.bA.texture; B.uDir.value.set(2/(POST.w>>3),0); pass(POST.mBL,POST.bC);
+  B.tC.value=POST.bC.texture; B.uDir.value.set(0,2/(POST.h>>3)); pass(POST.mBL,POST.bD);
+  // ③ 合わせて sRGB へ → ④ FXAA で画面へ
+  const C=POST.mCO.uniforms; C.tC.value=POST.rt.texture; C.tA.value=POST.tAOB.texture; C.tB1.value=POST.bA.texture; C.tB2.value=POST.bD.texture; C.uB.value=bk; pass(POST.mCO,POST.cmp);
+  POST.mFX.uniforms.tC.value=POST.cmp.texture; POST.mFX.uniforms.uTx.value.set(1/POST.w,1/POST.h); pass(POST.mFX,null);
+  info.autoReset=ar;
+}
+
 
 /* ============ 13. 撮影モード(動画用) ============
    動画は「駅のフォーカス → 次の駅までの前面展望・俯瞰 → 次の駅のフォーカス」を
@@ -9337,7 +9440,7 @@ const CINE=(function(){
     for(const t of trains) for(const c of t.cars) if(c.visible) lodCar(c);
     for(const c of parkedCars) lodCar(c);
     lodStruct();                 // 駅・高架橋の細部も今のカメラで判定する
-    renderer.render(scene,camera);
+    postRender();                // 画面の後処理(12b章:接地の陰・光のにじみ・FXAA)
   }
   return {
     begin(){cineOn=true;hideUI();},

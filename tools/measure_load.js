@@ -120,8 +120,29 @@ function findChromium() {
       camera.position.set(q.x + 90, railY(st.x) + 60, q.z + 110);
       camera.lookAt(q.x, railY(st.x), q.z); cam.tx = q.x; cam.tz = q.z;
     }));
+    /* 後処理(12b章。2026-11)の色の経路:接地の陰と光のにじみを 0 にした後処理の絵が、後処理を通さない絵(従来の1回の描画)と同じ色に
+       なること(sRGB への変換の式・トーンマップの扱い)。縁は FXAA と MSAA で違うので、平らな所(後処理を通さない絵で周り 3×3 の
+       RGB の和の幅が 12 以下の画素)で比べる。接地の陰を戻すと少し暗くなること(効いている) */
+    let post = null;
+    if (typeof POST !== 'undefined' && POST.on) {
+      const st = STA[2], q = frame(st.x + 60, 0);   // 品川(島式2面4線)
+      Object.assign(cam, { tx: q.x, ty: 8, tz: q.z, r: 260, th: Math.PI / 2 - .5, ph: .9 }); applyCam();
+      if (ortho) await ortho.settle(30000);
+      const full = () => { CINE.render(); const a = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, a); return a; };
+      const s0 = { ao: POST.ao, bd: POST.bloomD, bn: POST.bloomN };
+      POST.ao = 0; POST.bloomD = 0; POST.bloomN = 0; full(); const A = full();
+      POST.on = false; full(); const Bp = full(); POST.on = true;
+      POST.ao = s0.ao; full(); const C = full(); POST.bloomD = s0.bd; POST.bloomN = s0.bn;
+      let d = 0, big = 0, lA = 0, lC = 0, nf = 0; const sum = (i) => Bp[i] + Bp[i + 1] + Bp[i + 2];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { const i = (y * W + x) * 4;
+        lA += A[i] + A[i + 1] + A[i + 2]; lC += C[i] + C[i + 1] + C[i + 2];
+        let mn = 1e9, mx = -1e9; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const s = sum(((y + dy) * W + x + dx) * 4); mn = Math.min(mn, s); mx = Math.max(mx, s); }
+        if (mx - mn > 12) continue; nf++;
+        let e = 0; for (let k = 0; k < 3; k++) e += Math.abs(A[i + k] - Bp[i + k]); d += e; if (e > 24) big++; }
+      const n = (W - 2) * (H - 2); post = { mean: d / Math.max(1, nf) / 3, big: big / Math.max(1, nf), flat: nf / n, dark: (lA - lC) / n / 3 };
+    }
     const mem = renderer.info.memory;
-    return { views: out, geometries: mem.geometries, textures: mem.textures,
+    return { views: out, post: post, geometries: mem.geometries, textures: mem.textures,
              programs: (renderer.info.programs || []).length, ortho: ortho ? ortho.stat() : null };
   }, [W, H]);
   await b.close();
@@ -151,6 +172,11 @@ function findChromium() {
       chk(v.name + ' 三角形', v.tri, lim.tri);
     }
     if (B.geometries) chk('ジオメトリ数', r.geometries, B.geometries);
+    if (r.post) {   // 後処理の色の経路(上の説明)。基準は検証側:平らな所(5% 以上)で差の平均 1.0/255 以下・大きな差(各色 8 超)1% 以下・接地の陰で 0.2〜6/255 暗く
+      const okP = r.post.flat >= 0.05 && r.post.mean <= 1.0 && r.post.big <= 0.01 && r.post.dark >= 0.2 && r.post.dark <= 6; if (!okP) ng++;
+      console.log(pad('後処理の色の経路', 36) + pad('平らな所 ' + (r.post.flat * 100).toFixed(0) + '% で差 ' + r.post.mean.toFixed(2) + '/255・大 ' + (r.post.big * 100).toFixed(2) + '%・陰 ' + r.post.dark.toFixed(2) + '/255', 52) + (okP ? 'OK' : 'NG'));
+    } else { ng++; console.log(pad('後処理の色の経路', 36) + '後処理が無い  NG'); }
+    if (B.textures) chk('テクスチャ数', r.textures, B.textures);
     if (B.textures) chk('テクスチャ数', r.textures, B.textures);
   }
   console.log(ng ? 'RESULT: FAIL' : 'RESULT: PASS');

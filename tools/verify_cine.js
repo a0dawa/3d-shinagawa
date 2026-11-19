@@ -822,11 +822,12 @@ const TPROP = {};
 
 /* ---- 9. 1枚描くところまで通るか ------------------------------------------ */
 {
-  const before = X.renderer.frames;
+  const before = X.renderer.frames, b0 = X.renderer.sceneLog.length;
   let err = null;
   try { C.setSize(320, 180); C.render(); } catch (e) { err = e.message; }
-  ok('描画が通る', err === null && X.renderer.frames === before + 1, '1枚描く',
-    err === null ? (X.renderer.frames - before) + '枚' : err);
+  const log = X.renderer.sceneLog.slice(b0), nScene = log.filter((s) => s === X.scene).length;
+  ok('描画が通る', err === null && nScene === 1 && log[0] === X.scene, '場面を1回描く(後処理はその後)',
+    err === null ? '場面 ' + nScene + '回・全部で ' + (X.renderer.frames - before) + '回' : err);
   ok('解像度の指定', X.camera.aspect > 1.7 && X.camera.aspect < 1.8, '16:9',
     X.camera.aspect.toFixed(3));
   ok('時刻と季節の表示名', typeof C.label() === 'string' && C.label().length > 0,
