@@ -66,9 +66,18 @@ function findChromium() {
   await p.addInitScript(`(()=>{let a=20260701>>>0;Math.random=()=>{
     a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
     t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};})()`);
+  /* 読み込み中の表示(2026-11):読み込み係が本体を「//@@PART n」の数+1の片に分けて実行し、片ごとに進み具合を出す。検証側で HTML から片の数を数え、
+     全部の片が実行された(KEIO_LT の数)・KEIO_READY・表示が消える・見えた進み具合が減らない を見る(片の途中で例外なら止まって表示が残る) */
+  const srcHtml = fs.readFileSync(HTML, 'utf8'), nParts = (srcHtml.match(/^\/\/@@PART\s+\d+/mg) || []).length + 1;
+  const pctSeen = [];
+  await p.exposeFunction('__pctSeen', (v) => { pctSeen.push(v); });
+  await p.addInitScript(`(()=>{ const f=()=>{ const b=document.getElementById('loadPct'); if(!b){ if(document.readyState==='loading') setTimeout(f,5); return; }
+    new MutationObserver(()=>window.__pctSeen(+b.textContent)).observe(b,{childList:true,characterData:true,subtree:true}); }; f(); })()`);
   const t0 = Date.now();
   await p.goto('file://' + PAGE, { timeout: 180000 });
   await p.waitForFunction('window.CINE!==undefined', { timeout: 180000 });
+  await p.waitForFunction('window.KEIO_READY!==false&&!document.getElementById("loading")', { timeout: 180000 });   // 読み込み中の表示が消えるまで
+  const loader = await p.evaluate(() => ({ ready: window.KEIO_READY, lt: (window.KEIO_LT || []).length, times: (window.KEIO_LT || []).map(Math.round), gone: !document.getElementById('loading') }));
   await p.waitForFunction('typeof PTX_READY==="undefined"||PTX_READY.all', { timeout: 180000 });   // 写真テクスチャの画像が読めるまで
   const loadMs = Date.now() - t0;
   const res = await p.evaluate(async ([W, H]) => {
@@ -148,6 +157,7 @@ function findChromium() {
   await b.close();
   const html = fs.statSync(HTML).size;
   const r = Object.assign({ html: html, loadMs: loadMs }, res);
+  console.log('片ごとの時間[ms]: ' + (loader.times || []).join(' '));
   console.log('HTML ' + (html / 1024).toFixed(1) + ' KB  読み込み ' + (loadMs / 1000).toFixed(1) + ' 秒  '
     + 'ジオメトリ ' + r.geometries + ' / テクスチャ ' + r.textures + ' / シェーダ ' + r.programs);
   const pad = (s, n) => { s = String(s); let w = 0; for (const ch of s) w += ch.charCodeAt(0) > 255 ? 2 : 1; return s + ' '.repeat(Math.max(1, n - w)); };
@@ -164,6 +174,9 @@ function findChromium() {
       const ok = val <= lim; if (!ok) ng++;
       console.log(pad(label, 36) + pad(val.toLocaleString(), 12) + '≦ ' + lim.toLocaleString() + '  ' + (ok ? 'OK' : 'NG'));
     };
+  { const mono = pctSeen.every((v, i) => i === 0 || v >= pctSeen[i - 1]), okL = loader.ready === true && loader.lt === nParts && loader.gone && mono && pctSeen.length >= 3 && pctSeen[pctSeen.length - 1] === 100;
+    if (!okL) ng++;
+    console.log(pad('読み込み中の表示', 36) + pad('片 ' + loader.lt + '/' + nParts + '・READY ' + loader.ready + '・表示 ' + (loader.gone ? '消えた' : '残る') + '・進み具合 ' + pctSeen.join(' '), 52) + (okL ? 'OK' : 'NG')); }
     chk('HTML[バイト]', html, B.html);
     for (const v of r.views) {
       const lim = B.views && B.views[v.name];

@@ -138,9 +138,30 @@
     #hint{display:none}
     #nav svg{height:88px}
   }
+  /* 読み込み中の表示(2026-11 利用者指示「起動時に読み込み中…○○%」)。本体は章の区切りで分けて実行し、区切りごとに描き直す(下の読み込み係) */
+  #loading{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+    background:#e9edf1;color:var(--ink);font:600 17px/1.5 system-ui,-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;transition:opacity .4s}
+  #loading.done{opacity:0;pointer-events:none}
+  #loading .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 24px;min-width:240px;text-align:center;
+    box-shadow:0 4px 18px rgba(0,0,0,.12)}
+  #loading .ttl{font-size:12px;font-weight:500;color:var(--dim);margin-bottom:6px}
+  #loading .bar{height:6px;background:#d5dbe1;border-radius:3px;margin-top:10px;overflow:hidden}
+  #loading .bar i{display:block;height:100%;width:0;background:var(--keio-pink);transition:width .25s}
+  #loading .err{display:none;margin-top:8px;font-size:13px;font-weight:500;color:#b3261e}
 </style>
 </head>
 <body>
+<div id="loading" role="status" aria-live="polite"><div class="box">
+  <div class="ttl">京急本線 泉岳寺〜新馬場間 連続立体交差事業(品川駅付近 地平化)3Dビューア</div>
+  読み込み中…<b id="loadPct">0</b>%<div class="bar"><i id="loadBar"></i></div>
+  <div class="err" id="loadErr">読み込みに失敗しました。再読み込みしてください。</div>
+</div></div>
+<script data-loading>
+/* 読み込みの進み具合(0〜100)。データのファイル(下の <script src>)の間と、本体の章ごと(読み込み係)に呼ぶ */
+window.KEIO_READY=false;
+window.KEIO_LP=function(p){ var b=document.getElementById('loadPct'), i=document.getElementById('loadBar'); p=Math.max(0,Math.min(100,Math.round(p)));
+  if(b) b.textContent=p; if(i) i.style.width=p+'%'; };
+</script>
 <canvas id="c" aria-label="京急品川駅付近 地平化後の3Dモデル"></canvas>
 <div id="rot">
   <div class="ico">📱</div>
@@ -186,12 +207,18 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script data-loading>KEIO_LP(3)</script>
 <script src="plateau_bldg.js"></script><!-- 沿線の建物(PLATEAU 形式。品川版は国土地理院データから tools/gsi_city.py が作る) -->
+<script data-loading>KEIO_LP(7)</script>
 <script src="plateau_land.js"></script><!-- 沿線の道路・水面(同上) -->
+<script data-loading>KEIO_LP(9)</script>
 <!-- plateau_tex.js(建物の写真。京王版は PLATEAU の LOD2)は品川版には無い=建物は色で描く -->
 <script src="plateau_dem.js"></script><!-- 沿線の地形(同上。国土地理院 標高タイル) -->
 <script src="gsi_rail.js"></script><!-- 京急以外の鉄道(JR 等)の線路・ホームの上屋・線路上空の建物(国土地理院) -->
-<script>
+<script data-loading>KEIO_LP(13)</script>
+<!-- 本体。読み込み係(この下)が「//@@PART 進み具合」の行で分けて、1つずつ別のスクリプトとして実行する(間に画面を描き直して進み具合を出す)。
+     分けても上から順に実行するのは同じで、トップレベルの const・let・function は後の片から見える(関数の巻き上げだけは片の中) -->
+<script id="keio-main" type="text/x-keio">
 'use strict';
 if(!window.THREE){document.body.insertAdjacentHTML('beforeend','<div class="panel" style="top:50%;left:50%;transform:translate(-50%,-50%);padding:20px">3Dライブラリを読み込めませんでした。通信環境をご確認ください。</div>');throw new Error('three missing');}
 
@@ -592,6 +619,72 @@ const RAW={
 
 /* ============ 2. 平面線形エンジン(現況中心線+別線の振り+平滑化) ============ */
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+/* ---- 前の片から呼ぶ関数(読み込み係が本体を「//@@PART」で片に分けて実行するので、関数の巻き上げは片の中だけになる。
+   前の片の実行中に呼ばれる関数をここ=最初の片へ移した。中身は変えていない。tools/harness.js(②)が片ごとに実行して見つける) ---- */
+function polyDist(P,x,z){
+  let inside=false, d=1e18;
+  for(let i=0,j=P.length-1;i<P.length;j=i++){
+    const a=P[j], b=P[i];
+    if(((a[1]>z)!==(b[1]>z)) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) inside=!inside;
+    const dx=b[0]-a[0], dz=b[1]-a[1], L2=dx*dx+dz*dz;
+    const u=L2?Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/L2)):0;
+    d=Math.min(d,Math.hypot(x-a[0]-dx*u,z-a[1]-dz*u));
+  }
+  return inside?-d:d;
+}
+function earTri(P){
+  const n=P.length, cr=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+  let A=0; for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n]; A+=a[0]*b[1]-b[0]*a[1];}
+  const idx=[...Array(n).keys()]; if(A<0) idx.reverse();
+  const inTri=(p,a,b,c)=>cr(a,b,p)>=0&&cr(b,c,p)>=0&&cr(c,a,p)>=0;
+  const T=[]; let guard=0;
+  while(idx.length>3&&guard++<4*n){
+    let cut=false;
+    for(let i=0;i<idx.length;i++){
+      const a=idx[(i+idx.length-1)%idx.length], b=idx[i], c=idx[(i+1)%idx.length];
+      if(cr(P[a],P[b],P[c])<=1e-9) continue;
+      let ear=true;
+      for(const q of idx) if(q!==a&&q!==b&&q!==c&&inTri(P[q],P[a],P[b],P[c])){ear=false;break;}
+      if(!ear) continue;
+      T.push([a,b,c]); idx.splice(i,1); cut=true; break;
+    }
+    if(!cut) break;
+  }
+  for(let i=1;i<idx.length-1;i++) T.push([idx[0],idx[i],idx[i+1]]);   // 残り(退化した所)は扇で
+  return T;
+}
+function facesGeo(P,N,I,Cc){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
+  if(Cc) g.setAttribute('color',new THREE.Float32BufferAttribute(Cc,3));
+  g.setIndex(I);
+  return g;
+}
+function cutTris(P){
+  const T0=earTri(P);
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const p of P){x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);z0=Math.min(z0,p[1]);z1=Math.max(z1,p[1]);}
+  if(x1<CUT_BB[0]||x0>CUT_BB[1]||z1<CUT_BB[2]||z0>CUT_BB[3]) return {V:P,T:T0};
+  const V=P.slice(), T=[], Q=new Map();
+  const sq=i=>{let q=Q.get(i); if(!q){q=prjXY(V[i][0],V[i][1]); Q.set(i,q);} return q;};
+  const inC=q=>cutIn(q.s,q.off,CUT_W.OUT);
+  const rec=(a,b,c,d)=>{
+    const A=sq(a),B=sq(b),C=sq(c), sMin=Math.min(A.s,B.s,C.s), sMax=Math.max(A.s,B.s,C.s);
+    if(sMax<DECK_END-1||sMin>CUT_END+1){T.push([a,b,c]);return;}
+    let wN=0,wS=0; for(const s of[sMin,(sMin+sMax)/2,sMax]){wN=Math.max(wN,cutHalf(s,1));wS=Math.max(wS,cutHalf(s,-1));}
+    wN+=1; wS+=1;
+    if((A.off>wN&&B.off>wN&&C.off>wN)||(A.off<-wS&&B.off<-wS&&C.off<-wS)){T.push([a,b,c]);return;}
+    const E=[[a,b],[b,c],[c,a]].map(e=>(V[e[0]][0]-V[e[1]][0])**2+(V[e[0]][1]-V[e[1]][1])**2), Lm=Math.max(...E);
+    if(Lm<0.36||d>18){ if(!inC(prjXY((V[a][0]+V[b][0]+V[c][0])/3,(V[a][1]+V[b][1]+V[c][1])/3))) T.push([a,b,c]); return; }
+    if(Lm<4&&inC(A)&&inC(B)&&inC(C)) return;               // 小さくて全部が掘割の中
+    const k=E.indexOf(Lm), e=[[a,b,c],[b,c,a],[c,a,b]][k];
+    V.push([(V[e[0]][0]+V[e[1]][0])/2,(V[e[0]][1]+V[e[1]][1])/2]); const m=V.length-1;
+    rec(e[0],m,e[2],d+1); rec(m,e[1],e[2],d+1);
+  };
+  for(const t of T0) rec(t[0],t[1],t[2],0);
+  return {V:V,T:T};
+}
 const sstep=t=>{t=clamp(t,0,1);return t*t*(3-2*t)};
 const plateau=(x,c,half,taper)=>{const d=Math.abs(x-c);return d<=half?1:d>=half+taper?0:1-sstep((d-half)/taper)};
 const MLAT=110952,MLON=90594;                        // 1度あたりのメートル(北緯35.62°。GRS80 の近似。tools と同じ値)
@@ -880,6 +973,7 @@ const POLE_S=(function(){
   return out.sort((a,b)=>a-b);
 })();
 
+//@@PART 16
 /* ============ 3. シーン基盤・材質・テクスチャ・工区グループ ============ */
 const canvas=document.getElementById('c');
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
@@ -1539,6 +1633,7 @@ function lodStruct(){
   if(ORTHO_MGR) ORTHO_MGR.update();               // 航空写真の窓とタイル(3章・14章の前)
 }
 
+//@@PART 20
 /* ============ 4. 地表・道路・水緑・施設(平面図準拠) ============ */
 /* ---- 道路:PLATEAU の実データ(別ファイル plateau_land.js があるとき) -----------------------
    国土交通省 3D都市モデル(Project PLATEAU)2025年度の道路(tran:Road の lod1MultiSurface=道路区域の平面形)。
@@ -2216,6 +2311,7 @@ const NSx=[];{let x=DOM.x0+70;while(x<DOM.x1-40){NSx.push(x);x+=92+Math.random()
 // 細街路グリッドの描画は廃止(格子状スジの解消)。街区割りNSxは建物配置にのみ使用。
 // 整備側道の歩道の帯(高架の両側に沿う緑がかった帯)は描かない(利用者指示:高架に沿う緑の道のようなものは削除)。
 // 高架下と側道の範囲(桁半幅+5.2m)は引き続き建物・樹木の占有域
+//@@PART 30
 /* ============ 5. 高架橋・橋脚・架線(工区グループ別) ============ */
 const yTop=x=>railY(x)-DECK_DROP, yBot=x=>railY(x)-GIRDER;
 const RANGES=[[DOM.x0,Math.round(PS0),null]];   // 事業起点以東=既存高架(常時表示)
@@ -2539,6 +2635,7 @@ function viaFlush(){
   }
 }
 
+//@@PART 37
 /* ============ 6. 軌道・架線・交差鉄道・地上線/仮線 ============ */
 // 敷設した軌道と、張った架線の登録簿。
 // 「線路はあるのに架線が無い」「架線が線路の真上に無い」を構造的に防ぐため、
@@ -2944,14 +3041,6 @@ function boxFaces(x0,x1,y0,y1,z0,z1,fs){
   return fs.map(k=>[k,F[k]]);
 }
 // 面の一覧を BufferGeometry に(cols があれば頂点カラーも)
-function facesGeo(P,N,I,Cc){
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
-  g.setAttribute('normal',new THREE.Float32BufferAttribute(N,3));
-  if(Cc) g.setAttribute('color',new THREE.Float32BufferAttribute(Cc,3));
-  g.setIndex(I);
-  return g;
-}
 /* 締結装置(1本のまくらぎの上、offs=レールの位置)。タイプレート・ショルダー・板ばね。頂点カラー */
 function fastGeo(offs){
   const P=[],N=[],Cc=[],I=[], col=new THREE.Color();
@@ -2971,6 +3060,7 @@ function fastGeo(offs){
 const TIE_GEO=tieGeo(), FAST1_GEO=fastGeo([0]), FAST2_GEO=fastGeo([-RAIL_OFF,RAIL_OFF]);
 MAT.fast=M(0xffffff,{vertexColors:true});
 CUR=null;
+//@@PART 38
 /* ============ 7. 駅・ラベル ============ */
 function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
   ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
@@ -4024,6 +4114,7 @@ const SG_DECK=[];                                   // 登録簿 {kind,s0,s1,o0,
   tag('西口駅前広場デッキ(計画)',(d0+d1)/2,yF+12,Wa((d0+d1)/2).w-8);
 }
 
+//@@PART 46
 /* ============ 6b. 架線(インテグレート架線) ============
    【設計方針】JR東日本のインテグレート架線を手本にする(2026-10 作り直し)。
    ・電線は き電ちょう架線2条(左右に15cm離して並べる)+トロリ線1条の3条。
@@ -4293,6 +4384,7 @@ tag('八ツ山跨線線路橋(架替)',(LM.yatsu.s+LM.shinYatsu.s)/2,24,-45);
 tag('事業起点(新馬場方)',Math.round(PS0),30,-70);
 tag('事業終点(泉岳寺方)・トンネル坑口',DECK_END,24,0);
 
+//@@PART 60
 /* ============ 8. 街並み(街区整列・模式) ============ */
 /* 【設計方針】建物・樹木は「置いてはいけない場所(占有域 KEEP)」と
    「すでに置いた物(OCC)」の2段階で棄却してから置く。
@@ -4397,17 +4489,6 @@ const ptxBoxHex=h=>{ const c=setSrgb(new THREE.Color(),h), l2s=v=>(v<=0.0031308)
 const ptxMat=a=>PTX_MAT[a]||(PTX_MAT[a]=(()=>{ const m=mkMat('MeshLambertMaterial',{map:PTX_TEX[a],color:0xffffff});
   m.color.setScalar(PTX_GAIN); bldWinPatch(m,true); m.userData.ptx=a; return m; })());
 // 多角形までの距離(内側なら負)
-function polyDist(P,x,z){
-  let inside=false, d=1e18;
-  for(let i=0,j=P.length-1;i<P.length;j=i++){
-    const a=P[j], b=P[i];
-    if(((a[1]>z)!==(b[1]>z)) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) inside=!inside;
-    const dx=b[0]-a[0], dz=b[1]-a[1], L2=dx*dx+dz*dz;
-    const u=L2?Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/L2)):0;
-    d=Math.min(d,Math.hypot(x-a[0]-dx*u,z-a[1]-dz*u));
-  }
-  return inside?-d:d;
-}
 function plbHit(px,pz,r){                  // 点(半径 r)が建物の足跡に掛かるか(r ≤ PLB_PAD)
   const l=PLB_GRID.get(Math.floor(px/PLB_CELL)+','+Math.floor(pz/PLB_CELL));
   if(l) for(const P of l) if(px>P.bb[0]-r&&px<P.bb[1]+r&&pz>P.bb[2]-r&&pz<P.bb[3]+r&&polyDist(P,px,pz)<r) return true;   // 外接矩形の外は多角形の外(結果は同じ)
@@ -4485,54 +4566,9 @@ function polyTri3(V){
   return {T:earTri(Q), n:[nx/l,ny/l,nz/l]};
 }
 // 単純多角形の耳切り(屋根の三角形)。[[i,j,k]…]
-function earTri(P){
-  const n=P.length, cr=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
-  let A=0; for(let i=0;i<n;i++){const a=P[i],b=P[(i+1)%n]; A+=a[0]*b[1]-b[0]*a[1];}
-  const idx=[...Array(n).keys()]; if(A<0) idx.reverse();
-  const inTri=(p,a,b,c)=>cr(a,b,p)>=0&&cr(b,c,p)>=0&&cr(c,a,p)>=0;
-  const T=[]; let guard=0;
-  while(idx.length>3&&guard++<4*n){
-    let cut=false;
-    for(let i=0;i<idx.length;i++){
-      const a=idx[(i+idx.length-1)%idx.length], b=idx[i], c=idx[(i+1)%idx.length];
-      if(cr(P[a],P[b],P[c])<=1e-9) continue;
-      let ear=true;
-      for(const q of idx) if(q!==a&&q!==b&&q!==c&&inTri(P[q],P[a],P[b],P[c])){ear=false;break;}
-      if(!ear) continue;
-      T.push([a,b,c]); idx.splice(i,1); cut=true; break;
-    }
-    if(!cut) break;
-  }
-  for(let i=1;i<idx.length-1;i++) T.push([idx[0],idx[i],idx[i+1]]);   // 残り(退化した所)は扇で
-  return T;
-}
 /* 地表に敷く多角形(PLATEAU の道路・緑地)の三角形から、仙川の掘割の中(擁壁の外面より内)を除く。掘割に掛からない
    多角形は earTri のまま。掛かる三角形は辺が 0.6m 以下になるまで2分し、重心が掘割の中なら捨てる
    (縁の凹凸は擁壁の厚さ 0.30m と同じ程度)。戻り値 {V:頂点, T:三角形} */
-function cutTris(P){
-  const T0=earTri(P);
-  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
-  for(const p of P){x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);z0=Math.min(z0,p[1]);z1=Math.max(z1,p[1]);}
-  if(x1<CUT_BB[0]||x0>CUT_BB[1]||z1<CUT_BB[2]||z0>CUT_BB[3]) return {V:P,T:T0};
-  const V=P.slice(), T=[], Q=new Map();
-  const sq=i=>{let q=Q.get(i); if(!q){q=prjXY(V[i][0],V[i][1]); Q.set(i,q);} return q;};
-  const inC=q=>cutIn(q.s,q.off,CUT_W.OUT);
-  const rec=(a,b,c,d)=>{
-    const A=sq(a),B=sq(b),C=sq(c), sMin=Math.min(A.s,B.s,C.s), sMax=Math.max(A.s,B.s,C.s);
-    if(sMax<DECK_END-1||sMin>CUT_END+1){T.push([a,b,c]);return;}
-    let wN=0,wS=0; for(const s of[sMin,(sMin+sMax)/2,sMax]){wN=Math.max(wN,cutHalf(s,1));wS=Math.max(wS,cutHalf(s,-1));}
-    wN+=1; wS+=1;
-    if((A.off>wN&&B.off>wN&&C.off>wN)||(A.off<-wS&&B.off<-wS&&C.off<-wS)){T.push([a,b,c]);return;}
-    const E=[[a,b],[b,c],[c,a]].map(e=>(V[e[0]][0]-V[e[1]][0])**2+(V[e[0]][1]-V[e[1]][1])**2), Lm=Math.max(...E);
-    if(Lm<0.36||d>18){ if(!inC(prjXY((V[a][0]+V[b][0]+V[c][0])/3,(V[a][1]+V[b][1]+V[c][1])/3))) T.push([a,b,c]); return; }
-    if(Lm<4&&inC(A)&&inC(B)&&inC(C)) return;               // 小さくて全部が掘割の中
-    const k=E.indexOf(Lm), e=[[a,b,c],[b,c,a],[c,a,b]][k];
-    V.push([(V[e[0]][0]+V[e[1]][0])/2,(V[e[0]][1]+V[e[1]][1])/2]); const m=V.length-1;
-    rec(e[0],m,e[2],d+1); rec(m,e[1],e[2],d+1);
-  };
-  for(const t of T0) rec(t[0],t[1],t[2],0);
-  return {V:V,T:T};
-}
 /* ---- 建物の窓(2026-10-12 利用者指示:昼も窓を付ける。夜の窓明かりが建物の外=屋根より上や壁の無い所に出ないように) ----
    窓は**壁の面そのものにシェーダで描く**(以前は夜だけ、建物の外接矩形の側面の殻に窓格子を加算していたので、L字の建物や
    三角屋根の建物では壁の無い所・軒より上にも窓が光っていた)。世界座標で壁に沿う横の位置 u と高さ y から窓の格子を決め、
@@ -5081,6 +5117,7 @@ if(GSR){
   STRUCT.push({tag:'JR等の線路', n:GSR.rails.length, roofs:GSR.roofs.length, decks:GSR.decks.length});
 }
 
+//@@PART 78
 /* ============ 8b. 夜の灯り ============
    【設計方針】夜は太陽を弱めるだけだと全体が沈んで何も見えない。実際の夜景が
    見えるのは「地物が暗くても、窓・街灯・ホームの灯りが**自分で光っている**」から。
@@ -5276,6 +5313,7 @@ const NIGHT=(function(){
   return {group:G, set:set, stat:NIGHT_STAT};
 })();
 
+//@@PART 79
 /* ============ 9. 列車(京王8000系) ============ */
 /* 【設計方針】2026-10 差し替え:京王8000系 車体 v4 の移植
    出典:reference/keio8000_v4/(利用者提供の Blender 4.2 用モデル keio8000_model)。
@@ -6370,6 +6408,7 @@ const K8GEO=(function(){
   return G;
 })();
 
+//@@PART 80
 /* ============ 9b. 列車(京急2100形) ============
    【設計方針】京王版の9000系の作り(諸元表 → 断面 K21_ROWS/前面の平面形 k21nose()/開口の一覧 k21SideWindows() →
    幾何と塗り分け(シェーダ))をそのまま使い、数値と塗り分けを京急2100形に置き換えた。makeCar に series:'2100' を渡すと
@@ -8346,6 +8385,7 @@ function stepPSD(dt){
   }
 }
 
+//@@PART 91
 /* ============ 10. カメラ・運転モード・列車追尾 ============ */
 const pA0=frame(300,0),pB0=frame(7100,0);
 // 初期視点=公式平面図と同じ「北が上・新宿方(笹塚)が右」。
@@ -8655,6 +8695,7 @@ function syncNav(){
   navPos.textContent=(rideOn?'走行中:':'視点中心:')+'泉岳寺起点 '+KM(curS).toFixed(2)+'km付近';
 }
 
+//@@PART 92
 /* ============ 12. UI・ループ ============ */
 const $=id=>document.getElementById(id);
 function setAuto(v){autoOrbit=v;const b=$('btnOrbit');b.classList.toggle('on',v);b.textContent='自動旋回 '+(v?'ON':'OFF');}
@@ -8973,6 +9014,7 @@ function postRender(){
 }
 
 
+//@@PART 93
 /* ============ 13. 撮影モード(動画用) ============
    動画は「駅のフォーカス → 次の駅までの前面展望・俯瞰 → 次の駅のフォーカス」を
    繰り返す。時刻(朝/昼/夕/夜)と季節(春夏秋冬)を場面ごとに差し替える。
@@ -9695,6 +9737,38 @@ for(const b of document.querySelectorAll('#segWeather button')) b.onclick=()=>we
 
 trains.forEach(placeTrain);
 requestAnimationFrame(loop);
+</script>
+<script data-loading>
+/* 読み込み係(京王の loading-progress を取り込み。2026-11-19):本体(keio-main)を「//@@PART n」の行で分け、片ごとに別の classic な
+   スクリプトとして実行する(トップレベルの const・let・function は後の片から見える。'use strict' は片ごとに付ける)。片の間で画面を描き直し、
+   n(その区切りまでの進み具合[%]。2026-11-19 にブラウザ(ソフトウェアの描画)で測った片ごとの時間(ms。本体 約1.1秒)27 55 132 88 4 119 186 252 5 22 140 1 22 32 から。データのファイルの読み込みを 0〜13%、本体を 14〜95%、
+   最初のコマを 100% に)を出す。片が例外で止まったら(three.js が読めない等)先へ進まず知らせる。
+   描き直しは requestAnimationFrame か 50ms の早い方(裏のタブでも止まらない)。全部済んだら KEIO_READY=true(撮影・検証の道具が待つ) */
+(function(){
+  var el=document.getElementById('keio-main'), src=el?el.textContent:'', ov=document.getElementById('loading');
+  var parts=[], pct=[], re=/^\/\/@@PART\s+(\d+).*$/mg, last=0, m;
+  while((m=re.exec(src))){ parts.push(src.slice(last,m.index)); pct.push(+m[1]); last=m.index+m[0].length; }
+  parts.push(src.slice(last)); pct.push(100);
+  window.KEIO_LT=[];
+  var i=0;
+  function fail(){ var e=document.getElementById('loadErr'); if(e) e.style.display='block'; }
+  function step(){
+    var t0=performance.now();
+    window.__keioPart=-1;
+    var s=document.createElement('script');
+    s.text=(i?"'use strict';\n":'')+parts[i]+'\n;window.__keioPart='+i+';\n//# sourceURL=keikyu_shinagawa_3d.part'+i+'.js';
+    document.body.appendChild(s);                      // その場で実行される
+    window.KEIO_LT.push(performance.now()-t0);
+    if(window.__keioPart!==i){ fail(); return; }
+    KEIO_LP(pct[i]); i++;
+    if(i>=parts.length){ window.KEIO_READY=true;                 // 最初のコマ(シェーダの組み立てで重い)を描いてから消す:本体が最後に頼んだ rAF の次のコマで
+      var hide=function(){ if(!ov) return; ov.classList.add('done'); setTimeout(function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); },450); };
+      requestAnimationFrame(function(){ requestAnimationFrame(hide); }); setTimeout(hide,8000); return; }
+    var went=false, go=function(){ if(went) return; went=true; setTimeout(step,0); };
+    requestAnimationFrame(go); setTimeout(go,50);
+  }
+  step();
+})();
 </script>
 </body>
 </html>

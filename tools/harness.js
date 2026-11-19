@@ -4,9 +4,13 @@
 const fs = require('fs');
 const path = process.argv[2] || 'keikyu_shinagawa_3d.html';
 const html = fs.readFileSync(path, 'utf8');
-const m = html.match(/<script>([\s\S]*?)<\/script>/);
+// 本体:2026-11 から <script id="keio-main" type="text/x-keio">。ブラウザの読み込み係と同じく「//@@PART n」の行で分け、
+// 片ごとに別のスクリプト(vm.runInThisContext=classic な script と同じく、トップレベルの const・let・function は後の片から見える)として
+// 実行する。関数の巻き上げは片の中だけなので、前の片が実行中に後の片の関数を呼ぶと ReferenceError になる(それを見つける)
+const m = html.match(/<script id="keio-main" type="text\/x-keio">([\s\S]*?)<\/script>/) || html.match(/<script>([\s\S]*?)<\/script>/);
 if (!m) { console.error('NO_SCRIPT'); process.exit(1); }
 const code = m[1];
+const PARTS = code.split(/^\/\/@@PART\s+\d+.*$/m);
 // 別ファイルの沿線の建物データ(あれば先に読む)
 {
   for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js']) {
@@ -55,11 +59,14 @@ global.localStorage = anything;
 let rafN = 0;
 global.requestAnimationFrame = () => { rafN++; return rafN; };
 
+let partNo = 0;
 try {
-  eval(code);
-  console.log('RUNTIME_OK (rafN=' + rafN + ')');
+  const vm = require('vm');
+  for (; partNo < PARTS.length; partNo++)
+    vm.runInThisContext((partNo ? "'use strict';\n" : '') + PARTS[partNo], { filename: 'keio_part' + partNo + '.js' });
+  console.log('RUNTIME_OK (rafN=' + rafN + '・' + PARTS.length + '片)');
 } catch (e) {
-  console.error('RUNTIME_ERROR: ' + e.constructor.name + ' ' + e.message);
-  console.error(e.stack.split('\n').slice(0, 4).join('\n'));
+  console.error('RUNTIME_ERROR: 片 ' + partNo + '/' + PARTS.length + ' ' + e.constructor.name + ' ' + e.message);
+  console.error(String(e.stack).split('\n').slice(0, 4).join('\n'));
   process.exit(1);
 }

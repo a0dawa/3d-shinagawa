@@ -353,7 +353,9 @@ function install() {
  */
 module.exports = function runHtml(htmlPath, exportExpr) {
   const html = fs.readFileSync(htmlPath, 'utf8');
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  // 本体:2026-11 から <script id="keio-main" type="text/x-keio">(読み込み係が「//@@PART」の行で分けて実行する)。
+  // ここでは分けずに1つの eval で実行する(区切りは注釈。片の間の前方参照は ② harness.js が片ごとに実行して見る)
+  const m = html.match(/<script id="keio-main" type="text\/x-keio">([\s\S]*?)<\/script>/) || html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) { console.error('NO_SCRIPT'); process.exit(1); }
   install();
   // 別ファイルの沿線の建物データ(<script src="plateau_bldg.js">)。HTML と同じ場所にあれば先に読む
