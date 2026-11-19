@@ -18,7 +18,9 @@ const X = require('./stub_three')(path,
   'SH_MAP:SH_MAP,SH_MIN:SH_MIN,SH_MAX:SH_MAX,SUN_DIST:SUN_DIST,' +
   'groundMesh:groundMesh,SHADOW_STAT:SHADOW_STAT,DOM:DOM,' +
   'SKY:SKY,SKY_TEX:SKY_TEX,SKY_R:SKY_R,skyDome:skyDome,MAT:MAT,camera:camera,scene:scene,' +
-  'CARMAT:CARMAT,TRIMMAT:TRIMMAT,M_PN:M_PN,M_SH:M_SH,M_PANS:M_PANS,M_BOG:M_BOG,ENV_TEX:ENV_TEX');
+  'CARMAT:CARMAT,TRIMMAT:TRIMMAT,M_PN:M_PN,M_SH:M_SH,M_PANS:M_PANS,M_BOG:M_BOG,ENV_TEX:ENV_TEX,' +
+  'sunFar:(typeof sunFar!=="undefined"?sunFar:null),FAR:(typeof FAR!=="undefined"?FAR:null),FAR_MAP:(typeof FAR_MAP!=="undefined"?FAR_MAP:0),' +
+  'trains:trains,parkedCars:parkedCars');
 
 /* ---- 期待値(検証側が独立して持つ) ---------------------------------------- */
 const REF = {
@@ -29,6 +31,9 @@ const REF = {
   MIN_ELEV: 25,       // 太陽高度の下限[°](低すぎると影が伸びて破綻する)
   MAX_ELEV: 70,
   SCENE_R: 5600,      // 場面の広がり(地表11000×5200の外接半径の目安)[m]
+  FAR_R_MIN: 2000,    // 遠くの影の半径の下限[m](近くの影の上限の外を、全体俯瞰の視界の多くまで覆う)
+  FAR_TEXEL: 2.5,     // 遠くの影のテクセルの上限[m]
+  FAR_MOVE: [100, 300],   // 写し直す移動の量の範囲[m](小さいと毎コマ写し直して重い・大きいと縁が見える)
   ENVMAP: ['rail', 'glass', 'water'],   // 空を映す材質
 };
 
@@ -139,6 +144,49 @@ const len = (v) => Math.hypot(v.x, v.y, v.z);
   }
   ok('影カメラのnear', c.near < lo, '<' + lo.toFixed(0) + 'm', c.near.toFixed(0) + 'm');
   ok('影カメラのfar', c.far > hi, '>' + hi.toFixed(0) + 'm', c.far.toFixed(0) + 'm');
+}
+
+/* ---- 5b. 遠くの影(2026-11 利用者指示「更なるクオリティアップ」③ 影の段分け) ----------------------------
+   照らさない(強さ 0)2つ目の平行光 sunFar の粗い影マップ。向きは太陽と同じ・半径 FAR_R_MIN 以上・テクセル FAR_TEXEL 以下・中心は
+   テクセルの格子に載る・near/far が範囲と高さ 0〜OBJ_TOP を挟む。写し直しは注視点が FAR_MOVE の範囲の量だけ動いたとき(それより
+   小さい移動では写し直さない)。動く物(走行列車・留置車・自動車・人)は遠くの影に入れない印 mv がある。
+   シェーダ(Lambert の getShadowMask)は近くの影マップの内なら近く・外なら遠くの片方だけを使う(ソース) */
+{
+  const F = X.sunFar, FA = X.FAR;
+  if (!F || !FA) ok('遠くの影', false, 'sunFar がある', '無い');
+  else {
+    const src = X.__html, c = F.shadow.camera, R = c.right, texel = 2 * R / X.FAR_MAP;
+    ok('遠くの影:照らさない', F.intensity === 0, '強さ 0', F.intensity);
+    ok('遠くの影:範囲とテクセル', R >= REF.FAR_R_MIN && c.left === -R && c.top === R && c.bottom === -R && texel <= REF.FAR_TEXEL,
+      '半径 ' + REF.FAR_R_MIN + 'm 以上・テクセル ' + REF.FAR_TEXEL + 'm 以下', '半径 ' + R + 'm・テクセル ' + texel.toFixed(2) + 'm');
+    let badD = null, badG = null, badZ = null, lo = 1e9, hi = -1e9;
+    const n = REF.SUN, l = len(n);
+    for (const [fx, fz] of [[-123.5, 345.6], [-400, 200], [777, 900]]) {
+      FA.need = true; X.sunFollow(fx, fz, 300);
+      const t = F.target.position, L = F.position, v = sub(L, t), lv = len(v);
+      const d = Math.hypot(v.x / lv - n.x / l, v.y / lv - n.y / l, v.z / lv - n.z / l);
+      if (d > 1e-6 && !badD) badD = d.toFixed(6);
+      for (const ax of [X.SUN_RT, X.SUN_UP]) { const g = dot(t, ax) / texel; if (Math.abs(g - Math.round(g)) > 1e-6 && !badG) badG = g.toFixed(4); }
+      for (const a of [-R, 0, R]) for (const b of [-R, 0, R]) for (const h of [0, REF.OBJ_TOP]) {
+        const q = { x: t.x + X.SUN_RT.x * a + X.SUN_UP.x * b, y: h, z: t.z + X.SUN_RT.z * a + X.SUN_UP.z * b }, dd = dot(sub(q, L), X.SUN_F);
+        lo = Math.min(lo, dd); hi = Math.max(hi, dd); }
+    }
+    ok('遠くの影:向き', badD === null, '太陽と同じ向き', badD === null ? '一致' : '差 ' + badD);
+    ok('遠くの影:テクセルの格子', badG === null, '格子座標が整数', badG === null ? '整数' : badG);
+    ok('遠くの影:near/far', c.near < lo && c.far > hi, 'near<' + lo.toFixed(0) + '・far>' + hi.toFixed(0), c.near.toFixed(0) + '〜' + c.far.toFixed(0));
+    // 写し直す量:小さい移動では写し直さず、大きい移動で写し直す
+    FA.need = true; X.sunFollow(-300, 300, 300); FA.need = false;
+    X.sunFollow(-300 + REF.FAR_MOVE[0], 300, 300); const small = FA.need;
+    X.sunFollow(-300 + REF.FAR_MOVE[1], 300, 300); const big = FA.need;
+    ok('遠くの影:写し直す量', !small && big, REF.FAR_MOVE[0] + 'm では写し直さず ' + REF.FAR_MOVE[1] + 'm で写し直す', (small ? '小で写す' : '小は写さない') + '・' + (big ? '大で写す' : '大でも写さない'));
+    // 動く物の印
+    const mv = [];
+    for (const t of X.trains) for (const cc of t.cars) mv.push(cc); for (const cc of X.parkedCars) mv.push(cc);
+    const nMv = mv.filter((o) => o.userData && o.userData.mv).length;
+    ok('遠くの影:動く物は入れない', nMv === mv.length && mv.length > 20, '走行列車・留置車に印 mv', nMv + '/' + mv.length);
+    const sh = /NUM_DIR_LIGHT_SHADOWS == 2/.test(src) && /bool in0 = c0\.x > 0\.03/.test(src) && /sunFar\.castShadow=false/.test(src);
+    ok('遠くの影:シェーダとスマホ', sh, '近くの影マップの内は近くだけ・スマホは切る', sh ? 'あり' : 'なし');
+  }
 }
 
 /* ---- 6. 落とす/受けるの割当 ------------------------------------------------ */

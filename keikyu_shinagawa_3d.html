@@ -1059,6 +1059,58 @@ function sunFollow(fx,fz,dist){
   sun.target.position.set(t.x,t.y,t.z);
   sun.target.updateMatrixWorld();
   sun.position.set(t.x+SUN_N.x*SUN_DIST, t.y+SUN_N.y*SUN_DIST, t.z+SUN_N.z*SUN_DIST);
+  if(typeof farFollow==='function') farFollow(fx,fz);   // 遠くの影(すぐ下)
+}
+
+/* ---- 遠くの影(2026-11 利用者指示「更なるクオリティアップ」③ 影の段分け) ---------------------------------------
+   近くの影(sun。半径 180〜600m・2048px)の外は影が無かった。もう1つの平行光 sunFar(色 0=照らさない。影だけ)に粗い影マップ
+   (半径 FAR_R=2400m・2048px=1画素 約2.3m)を持たせて、その外を覆う。
+   ・Lambert(地表・道路・建物・木。街のほとんど)の影は getShadowMask() が平行光の影を掛け合わせるので、ShaderChunk を差し替えて
+     「近くの影マップの内(縁の 3% を除く)なら近く・外なら遠く」の片方だけを使う(両方を掛けると近くでも粗い影がにじむ)。
+     Phong・Standard(車両・レール・ガラス)は光ごとに影を掛けるので、色 0 の sunFar の影は効かない(近くの影は今のまま)
+   ・遠くの影は動かない物だけが落とす(層 FAR_LAYER。列車・交差鉄道の列車・自動車・人は入れない=applyShadows)。写し直すのは、
+     注視点が FAR_MOVE=200m 動いたとき・太陽の向きが変わったとき・影を入れ直したときだけ。ほかのコマは renderer.shadowMap.render に
+     渡す光から sunFar を外し、前の影マップと行列をそのまま使う(写し直すコマだけ影の描画が1回ぶん増える)
+   ・スマホは影を切るので無い */
+const FAR_R=2400, FAR_MAP=2048, FAR_MOVE=200, FAR_LAYER=6, FAR_DIST=4200;
+const sunFar=new THREE.DirectionalLight(0x000000,0);
+sunFar.castShadow=true; sunFar.shadow.mapSize.set(FAR_MAP,FAR_MAP);
+{ const c=sunFar.shadow.camera; c.left=-FAR_R; c.right=FAR_R; c.top=FAR_R; c.bottom=-FAR_R; c.near=FAR_DIST-FAR_R-300; c.far=FAR_DIST+FAR_R+300; c.layers.set(FAR_LAYER); }
+sunFar.shadow.bias=-0.0006; sunFar.shadow.normalBias=2.0;   // 1画素 2.3m の粗い影のアクネ(縞)対策
+scene.add(sunFar); scene.add(sunFar.target);               // sun より後に足す=平行光の影の 1 番目(シェーダの [1])
+const FAR={x:1e9, z:1e9, dir:'', need:true, n:0};
+if(THREE.ShaderChunk&&typeof THREE.ShaderChunk.shadowmask_pars_fragment==='string'){
+  const a='\t#pragma unroll_loop_start\n\tfor ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {\n\t\tdirectionalLight = directionalLightShadows[ i ];\n\t\tshadow *= receiveShadow ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;\n\t}\n\t#pragma unroll_loop_end\n';
+  const S=THREE.ShaderChunk.shadowmask_pars_fragment;
+  if(S.indexOf(a)>=0) THREE.ShaderChunk.shadowmask_pars_fragment=S.replace(a,
+    '\t#if NUM_DIR_LIGHT_SHADOWS == 2\n\t{\n'+
+    '\t\tvec3 c0 = vDirectionalShadowCoord[ 0 ].xyz / vDirectionalShadowCoord[ 0 ].w;\n'+
+    '\t\tbool in0 = c0.x > 0.03 && c0.x < 0.97 && c0.y > 0.03 && c0.y < 0.97 && c0.z < 1.0;\n'+     // 近くの影マップの内
+    '\t\tif ( receiveShadow && in0 ) { directionalLight = directionalLightShadows[ 0 ]; shadow *= getShadow( directionalShadowMap[ 0 ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ 0 ] ); }\n'+
+    '\t\telse if ( receiveShadow ) { directionalLight = directionalLightShadows[ 1 ]; shadow *= getShadow( directionalShadowMap[ 1 ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ 1 ] ); }\n'+
+    '\t}\n\t#else\n'+a+'\t#endif\n');
+}
+// 写し直すかを決めて sunFar を置く(sunFollow から)。向きは sun と同じ・中心は影テクセルの格子に載せる
+function farFollow(fx,fz){
+  if(!sunFar.castShadow) return;
+  const dk=SUN_N.x.toFixed(5)+','+SUN_N.y.toFixed(5)+','+SUN_N.z.toFixed(5);
+  if(!FAR.need&&dk===FAR.dir&&Math.hypot(fx-FAR.x,fz-FAR.z)<FAR_MOVE) return;
+  FAR.x=fx; FAR.z=fz; FAR.dir=dk; FAR.need=true;
+  const texel=2*FAR_R/FAR_MAP, p={x:fx,y:0,z:fz};
+  const a=Math.round(dot3(p,SUN_RT)/texel)*texel, b=Math.round(dot3(p,SUN_UP)/texel)*texel, c=dot3(p,SUN_F);
+  const t={x:SUN_RT.x*a+SUN_UP.x*b+SUN_F.x*c, y:SUN_RT.y*a+SUN_UP.y*b+SUN_F.y*c, z:SUN_RT.z*a+SUN_UP.z*b+SUN_F.z*c};
+  sunFar.target.position.set(t.x,t.y,t.z); sunFar.target.updateMatrixWorld();
+  sunFar.position.set(t.x+SUN_N.x*FAR_DIST, t.y+SUN_N.y*FAR_DIST, t.z+SUN_N.z*FAR_DIST); sunFar.updateMatrixWorld();
+}
+// 写し直さないコマは影の描画に渡す光から sunFar を外す(前の影マップ・行列をそのまま使う)
+if(renderer.shadowMap&&typeof renderer.shadowMap.render==='function'){
+  const _shR=renderer.shadowMap.render;
+  renderer.shadowMap.render=function(lights,scn,cam){
+    const k=lights&&lights.indexOf?lights.indexOf(sunFar):-1;
+    if(k>=0&&!FAR.need&&sunFar.shadow.map){ const L=lights.slice(); L.splice(k,1); return _shR.call(this,L,scn,cam); }
+    if(k>=0){ FAR.need=false; FAR.n++; }
+    return _shR.call(this,lights,scn,cam);
+  };
 }
 
 /* 材質は必ずこの工場を通す(色を素通しで書くとその面だけ不自然に明るくなる)。
@@ -4721,13 +4773,13 @@ if(PLB){
     const g=facesGeo(P,N,I,Cc); g.boundingSphere=sphere(C.bx);
     g.setAttribute('aBld',new THREE.Float32BufferAttribute(AB,4));     // 窓の種類・壁の上端・種・基部
     const m=new THREE.Mesh(g,MAT_B); m.visible=false; scene.add(m);
-    m.castShadow=true; m.receiveShadow=true;        // 後から作るので applyShadows() の一括設定に載らない
+    m.castShadow=true; m.receiveShadow=true; m.layers.enable(FAR_LAYER);   // 遠くの影も。後から作るので applyShadows() の一括設定に載らない
     C.mt=[];                                          // 写真の形(詰め合わせごとに1回の描画)。表示は m と一緒に cityLod が切り替える
     for(const [a,q] of TX){
       const gt=facesGeo(q.P,q.N,q.I,null); gt.boundingSphere=sphere(C.bx);
       gt.setAttribute('uv',new THREE.Float32BufferAttribute(q.U,2));
       gt.setAttribute('aBld',new THREE.Float32BufferAttribute(q.AB,4));
-      const mt=new THREE.Mesh(gt,ptxMat(a)); mt.visible=false; mt.castShadow=true; mt.receiveShadow=true; mt.userData.ptx=a;
+      const mt=new THREE.Mesh(gt,ptxMat(a)); mt.visible=false; mt.castShadow=true; mt.receiveShadow=true; mt.layers.enable(FAR_LAYER); mt.userData.ptx=a;
       scene.add(mt); C.mt.push(mt);
     }
     return m;
@@ -8707,7 +8759,7 @@ if(IS_MOBILE){
   LOD_NEAR=260;                                             // 高精細モデルの適用範囲を短縮
   LOD_FAR=900;                                              // 台車・床下・冷房・パンタを描く範囲も短縮
   LOD_STRUCT=0.6;                                           // 駅・高架橋の細部も近くだけに
-  renderer.shadowMap.enabled=false;sun.castShadow=false;    // 影は1パス増えるので無効
+  renderer.shadowMap.enabled=false;sun.castShadow=false;sunFar.castShadow=false;    // 影は1パス増えるので無効(遠くの影も)
   const lockLandscape=()=>{                                 // 可能なら横画面に固定
     if(screen.orientation&&screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
   };
@@ -8730,8 +8782,17 @@ function applyShadows(){
     // 夜の灯りは「光っている面」なので影を落とさない(落とすと灯りが黒い塊になる)
     if(o.userData.night){o.castShadow=false;o.receiveShadow=false;SHADOW_STAT.recv--;return;}
     o.castShadow=true;SHADOW_STAT.cast++;
+    if(!farMoving(o)) o.layers.enable(FAR_LAYER);     // 遠くの影は動かない物だけ(遠くの影の章)
   });
 }
+// 動く物(走行列車・留置車・自動車・人):遠くの影マップは 200m 動くまで写し直さないので、動く物の影は残像になる
+function farMoving(o){
+  for(let p=o;p;p=p.parent) if(p.userData&&p.userData.mv) return true;
+  return false;
+}
+for(const t of trains) for(const c of t.cars) c.userData.mv=true;
+for(const c of parkedCars) c.userData.mv=true;
+scene.traverse(o=>{ if(o.isInstancedMesh&&(/^自動車/.test(o.name)||o.material===M_PEOPLE)) o.userData.mv=true; });
 applyShadows();
 
 let last=performance.now();
@@ -9258,7 +9319,7 @@ const CINE=(function(){
   /* 影の品質。影は1パス増えるうえ影マップの解像度ぶん描き直すので、
      撮影の所要時間に最も効く。size を変えたら影マップは作り直させる。 */
   function setShadow(on,size){
-    renderer.shadowMap.enabled=!!on; sun.castShadow=!!on;
+    renderer.shadowMap.enabled=!!on; sun.castShadow=!!on; sunFar.castShadow=!!on; FAR.need=true;   // 遠くの影も
     if(size){
       sun.shadow.mapSize.set(size,size);
       if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null;}
