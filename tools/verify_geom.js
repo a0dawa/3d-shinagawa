@@ -15,6 +15,7 @@ const X = require('./stub_three')(path,
   'DOM:DOM,STA:STA,frame:frame,railY:railY,prjXY:prjXY,deckHalf:deckHalf,TRACKS:TRACKS,platRange:platRange,' +
   'stopPosOf:stopPosOf,DECK_END:DECK_END,PS0:PS0,DECK_DROP:DECK_DROP,GIRDER:GIRDER,terH:terH,' +
   'GSR:(typeof GSR!=="undefined"?GSR:null),ROADS_PL:ROADS_PL,VIA_COLS:VIA_COLS,K21:K21,TRAIN_CARS:TRAIN_CARS,' +
+  'jrUnderBridge:(typeof jrUnderBridge!=="undefined"?jrUnderBridge:null),jrRailDrop:(typeof jrRailDrop!=="undefined"?jrRailDrop:null),' +
   'VIA_THRU:(typeof VIA_THRU!=="undefined"?VIA_THRU:[]),PIERS:PIERS,SG_DECK:(typeof SG_DECK!=="undefined"?SG_DECK:[])');
 
 /* ---- 検証側が独立に持つ基準値 ---- */
@@ -27,6 +28,8 @@ const REF = {
   JR_RAIL_H: 0.46,     // 描いた JR の線路のレール面の高さ(地表から。道床 0.30+レール 0.16)
   ROAD_CLEAR: 4.7,     // 道路の上の桁下の離隔[m](道路構造令の建築限界 4.5m+余裕)
   ROAD_Y: 0.12,        // 道路の面の高さ(地表から)
+  BR_MIN: 20,          // 道路橋の上にある JR の線路の点の下限[点。4m ごと]
+  BR_DROP: 0.8,        // 橋の下の線路が地形(橋の上面)より低くあるべき量[m]
   JR_COL: 2.5,         // 柱が JR 等の線路の中心から離れるべき距離[m]
   STOP_FIT: 1.0,       // 編成の両端とホームの端の余裕[m]
   GIRDER: 2.4,         // 標準の RC 桁(縦梁・横梁)の下端:レール面からの深さ[m]
@@ -95,6 +98,20 @@ const bottom = (s) => inThru(s) ? X.railY(s) - REF.DECK_DROP - REF.THRU_FLOOR : 
   }
   ok('JR 等の線路の上の桁下の離隔', n > 0 && cmin >= REF.JR_CLEAR, '≥' + REF.JR_CLEAR + 'm',
      n ? cmin.toFixed(2) + 'm(s=' + at.toFixed(0) + '・' + n + '点)' : '線路が高架の下に無い');
+}
+
+/* ---- 4b. 道路橋と JR 等の線路の上下(2026-11-20 利用者指摘:JR の線路と道路の上下が逆) ----
+   国土地理院の「橋・高架」の道路(ftCode 2703。sec 2)が JR 等の線路の上を通る所では、地形(DEM)が橋の上面を地表として持つので、
+   線路を地形に沿わせると橋の上へ乗り上げる。橋の下の線路は橋の外の高さを結んで通す(8a章 ribbon の JR_BRIDGE_ROADS)。
+   検証:橋(sec 2・高架の自動車道を除く)の上にある線路の点が REF.BR_MIN 以上あること(橋が面として在る)と、その点の線路が
+   地形の高さより REF.BR_DROP[m] 以上低く描かれる点が半数以上あること(橋の上面より下を通る) */
+if (typeof X.jrUnderBridge === 'function' && X.GSR) {
+  let n = 0, low = 0;
+  for (const L of X.GSR.rails) for (let i = 0; i < L.length - 1; i++) { const A = L[i], B = L[i + 1], k = Math.max(1, Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 4));
+    for (let j = 0; j < k; j++) { const x = A[0] + (B[0] - A[0]) * j / k, z = A[1] + (B[1] - A[1]) * j / k; if (X.jrUnderBridge(x, z)) n++; } }
+  ok('道路橋の上の線路の点', n >= REF.BR_MIN, '≥' + REF.BR_MIN + '点(道路橋が線路の上に在る)', n + '点');
+  const dr = X.jrRailDrop ? X.jrRailDrop() : null;
+  if (dr) ok('道路橋の下の線路は橋より低い', dr.n >= REF.BR_MIN && dr.low >= 0.5 * dr.n, '橋の下の点の半数以上が地形より ' + REF.BR_DROP + 'm 以上低い', dr.low + '/' + dr.n);
 }
 
 /* ---- 5. 道路の上の桁下の離隔 ---- */

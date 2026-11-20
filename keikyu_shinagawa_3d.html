@@ -5304,6 +5304,13 @@ if(PLB){
    ・線路の上の建物(駅の自由通路・駅ビル):下端を地表+6.8m(架線より上)に浮かせた人工地盤
    描画の呼び出しを減らすため、種類ごとに1つの結合ジオメトリにする(頂点カラー) */
 const JR_GAUGE=1.067, JR_RAIL_OFF=(JR_GAUGE+0.065)/2;
+const JR_BRIDGE_ROADS=true, JR_BR_PAD=12, JR_BR_DEPTH=6.0, JR_BR_DROP=0.8, JR_BR_STAT={n:0,low:0};   // JR_BR_STAT=検証用(橋の上の点の数と、地形より低く通した数)
+function jrRailDrop(){ return JR_BR_STAT; }          // 道路橋の下の線路の高さの補正(ribbon のコメント)。JR_BR_PAD=橋の前後に広げる距離[m]
+function jrUnderBridge(x,z){                       // 点が道路橋(sec 2。高架の自動車道は除く)の上か
+  const l=PLR_GRID.get(Math.floor(x/PLR_CELL)+','+Math.floor(z/PLR_CELL)); if(!l) return false;
+  for(const R of l) if(R.sec===2&&R.k!==2&&x>R.bb[0]&&x<R.bb[1]&&z>R.bb[2]&&z<R.bb[3]&&polyDist(R.P,x,z)<0) return true;
+  return false;
+}
 if(GSR){
   const P=[],N=[],I=[],C=[], col=new THREE.Color();
   const vtx=(x,y,z,nx,ny,nz,hex)=>{P.push(x,y,z);N.push(nx,ny,nz);setSrgb(col,hex);C.push(col.r,col.g,col.b);return P.length/3-1;};
@@ -5312,10 +5319,31 @@ if(GSR){
     const S=[]; for(let i=0;i<L.length-1;i++){const A=L[i],B=L[i+1],n=Math.max(1,Math.ceil(Math.hypot(B[0]-A[0],B[1]-A[1])/4));
       for(let k=0;k<n;k++) S.push([A[0]+(B[0]-A[0])*k/n, A[1]+(B[1]-A[1])*k/n]);}
     S.push(L[L.length-1]); if(S.length<2) return;
+    /* 道路橋の下の線路:地形(DEM)は橋の上面(道路の高さ)を地表として持つので、線路をそのまま地形に沿わせると橋の上へ乗り上げて
+       道路より上に描かれる(上下が逆になる)。橋(道路の区間 sec 2。高架の自動車道は除く)の上と、その前後 BR_PAD の線路は、
+       橋の外の線路の高さを直線でつなぎ、さらに JR_BR_DEPTH だけ下げて通す(橋桁の下。地形は橋の上面なので、線路は地形の下に隠れて橋の下を通る)。橋の外は従来どおり地形に沿う */
+    const G=S.map(q=>terH(q[0],q[1]));
+    if(JR_BRIDGE_ROADS){
+      const F=S.map(q=>jrUnderBridge(q[0],q[1])), n=S.length, A=[0]; for(let i=1;i<n;i++) A.push(A[i-1]+Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]));
+      const D=F.slice(); for(let i=0;i<n;i++) if(F[i]) for(let j=0;j<n;j++) if(Math.abs(A[j]-A[i])<=JR_BR_PAD) D[j]=true;
+      for(let i=0;i<n;i++) if(D[i]&&!(i>0&&D[i-1])){
+        let e=i; while(e+1<n&&D[e+1]) e++;
+        const a0=i>0?i-1:-1, a1=e+1<n?e+1:-1;
+        for(let k=i;k<=e;k++){
+          if(a0<0&&a1<0) continue;
+          const g0=a0>=0?G[a0]:G[a1], g1=a1>=0?G[a1]:G[a0], t=(a0>=0&&a1>=0)?(A[k]-A[a0])/(A[a1]-A[a0]):0;
+          // 橋の上(F)は JR_BR_DEPTH だけ下げ、前後の BR_PAD は橋からの距離に比例してゆるめる(橋桁の下を通る)
+          let dB=0; if(!F[k]){ dB=1e9; for(let j=0;j<n;j++) if(F[j]) dB=Math.min(dB,Math.abs(A[j]-A[k])); }
+          const w=Math.max(0,1-dB/JR_BR_PAD), gn=Math.min(G[k],g0+(g1-g0)*t)-JR_BR_DEPTH*w;
+          if(F[k]){ JR_BR_STAT.n++; if(G[k]-gn>=JR_BR_DROP) JR_BR_STAT.low++; } G[k]=gn;
+        }
+        i=e;
+      }
+    }
     let prev=null;
     for(let i=0;i<S.length;i++){
       const a=S[Math.max(0,i-1)], b=S[Math.min(S.length-1,i+1)], l=Math.hypot(b[0]-a[0],b[1]-a[1])||1, tx=(b[0]-a[0])/l, tz=(b[1]-a[1])/l;
-      const nx=-tz, nz=tx, g=terH(S[i][0],S[i][1]);
+      const nx=-tz, nz=tx, g=G[i];
       const row=prof.map(q=>[S[i][0]+nx*q[0], g+q[1], S[i][1]+nz*q[0]]);
       const ids=[];
       for(let k=0;k<row.length-1;k++){            // 区間ごとに頂点を分ける(角で陰が分かれる)

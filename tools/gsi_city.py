@@ -241,8 +241,12 @@ def main():
     roads = []
     for f in d['road']:
         p = f['p']
-        if p.get('ftCode') != 2701:
+        # 2701=道路中心線(通常部)・2703=橋・高架部(2026-11-20 追加。国土地理院の「橋・高架」は道路橋=線路や川の上を通る区間)。
+        # 以前は 2701 だけを使い、線路の近くを通る道路を全部「線路の上の橋」にしていた(線路が道路の上を通る所まで橋になり、
+        # 八ツ山橋などの本当の道路橋は面そのものが無かった)
+        if p.get('ftCode') not in (2701, 2703):
             continue
+        bridge = p.get('ftCode') == 2703
         for l in lines_of(f):
             q = [W(*c) for c in l]
             if not any(inband(t) for t in q):
@@ -262,7 +266,7 @@ def main():
             if len(seg) >= 2:
                 parts.append(seg)
             for sq in parts:
-                sec = 2 if crosses_rail(sq, w) else 1
+                sec = 2 if bridge else 1
                 roads.append((k, sec, ribbon(sq, w)))
     waters = []
     for f in d['waterarea']:
