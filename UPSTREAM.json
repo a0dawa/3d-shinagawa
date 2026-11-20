@@ -6,8 +6,8 @@
   "keio_commit": "588fa98",
   "overrides": {
     "facade": {
-      "status": "todo",
-      "note": "未着手(判断が要る)。京王の外装は PLATEAU の属性(建物構造・地上階数)と plateau_import.py の出力が前提だが、品川の建物は国土地理院の外形+推定の高さ(PLT1)で構造・階数が無い。移すなら gsi_city.py で種類・階数の推定を作る設計から。bldWinPatch の置き換え・検証 verify_facade.js(⑰)の移植も要る"
+      "status": "partial",
+      "note": "2026-11-20 取り込み(付属物を除く)。stc は用途から・st は gsi_city.py の高さ÷3.3 の推定。付属物(バルコニー・室外機・雨どい・軒樋・屋上の物)と ⑦ の外装の検査(verify_city)は未取り込み。verify_facade.js(⑫)は移植済み"
     },
     "road-marks": {
       "status": "todo",

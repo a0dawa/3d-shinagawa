@@ -4569,6 +4569,8 @@ function polyTri3(V){
 /* 地表に敷く多角形(PLATEAU の道路・緑地)の三角形から、仙川の掘割の中(擁壁の外面より内)を除く。掘割に掛からない
    多角形は earTri のまま。掛かる三角形は辺が 0.6m 以下になるまで2分し、重心が掘割の中なら捨てる
    (縁の凹凸は擁壁の厚さ 0.30m と同じ程度)。戻り値 {V:頂点, T:三角形} */
+/* (京王の facade を 2026-11-19 に取り込み。付属物=バルコニー・室外機・雨どい・軒樋は未取り込み。建物構造 stc と階数 st は
+   国土地理院に無いので、用途と高さから推定する=下の PLB の読み込み) */
 /* ---- 建物の窓(2026-10-12 利用者指示:昼も窓を付ける。夜の窓明かりが建物の外=屋根より上や壁の無い所に出ないように) ----
    窓は**壁の面そのものにシェーダで描く**(以前は夜だけ、建物の外接矩形の側面の殻に窓格子を加算していたので、L字の建物や
    三角屋根の建物では壁の無い所・軒より上にも窓が光っていた)。世界座標で壁に沿う横の位置 u と高さ y から窓の格子を決め、
@@ -4579,47 +4581,235 @@ function polyTri3(V){
    高さは建物の基部(地形の上=terMin。地形が無ければ 0)から測る(世界座標の y のまま測ると、谷の建物と丘の建物で階の位置がずれる) */
 /* 2026-10-12 利用者指示「窓が多すぎる。北に面する所は実際は窓があまりない」:間隔を広げ、窓の列を壁ごとに間引く。
    間引く割合は南向きの壁で [6]、北向きの壁で [7](向きの北の成分でつなぐ)。どの列を間引くかは列の番号と壁の向きから決める */
-const BLD_WIN=[ // [窓の間隔, 窓の幅, 階高, 窓の下端, 窓の上端(階の床から), 間引く割合(南), 間引く割合(北)] [m]
+/* 2026-10-29 利用者指示「建物の側面がまだ適当な作り。大抵は黒い四角い窓があるだけ」:外装をシェーダで作り込む(描画の回数は増えない)。
+   ・窓は壁の両端から 0.45m を空けて、壁の長さ L を窓の間隔に近い数の柱間(bw)に割り、柱間の中ほどに置く(角で窓が切れない)。
+     階は実際の階数(PLATEAU の storeysAboveGround)から決めた階高 fh で数える。1階の床は外装ごとの基礎の高さ g0
+   ・窓の種類は列ごと:戸建て=小窓(浴室・トイレ)・普通の引き違い・南向きの掃き出し窓、共同住宅=普通・小窓(廊下側)・バルコニーの掃き出し、
+     業務=連窓(1m ごとの方立)・カーテンウォール(高い業務の耐火造)。窓はアルミの枠と引き違いの縦桟、ガラスは空を映し(見る角度で強く)、
+     中はレース・カーテン・ブラインド。戸建ては雨戸の戸袋と閉じた雨戸、窓の上の小庇
+   ・1階は壁ごとの印(aWal の4つ目、ビットの和):1=玄関の扉と庇・2=店(1階は全面のガラスか閉じたシャッター、上に看板)・
+     4=共同住宅・業務の入口(ガラスの扉)・8=共同住宅のバルコニー(2階から上の掃き出し。遠くは手すりを塗る=近くは立体)・
+     16=戸建ての2階のバルコニー・32=車庫のシャッター・64=倉庫の大きなシャッター。道路に面した壁を detail() が選ぶ
+   ・壁の外装(aBld の1つ目=窓の種類+4×外装):0=窯業系サイディング(横目地 0.455m)・1=モルタルの吹付け・2=ALC(縦目地 0.606m)・
+     3=RC(階ごとの打継ぎ)・4=タイル・5=板張り・6=金属の波板・7=カーテンウォール。PLATEAU の建物構造(耐火・準防火・防火・木造)と用途から
+   ・陰と汚れ:足元(基礎の帯と地面の近くの暗がり)・角・軒下の暗がり、窓の下の雨だれ、壁ごとの明るさのゆらぎ
+   ・付属物(バルコニーの床と手すり・室外機・雨どい・軒樋と鼻隠し・屋上の室外機)は近く(ATT_NEAR)だけ立体(detail の記録を 100m の升ごとに形にする)。
+     aBld の1つ目が負の面は外装を描かない(付属物・パラペットの内側) */
+const BLD_WIN=[ // [窓の間隔, 窓の幅, 既定の階高, 窓の下端, 窓の上端(階の床から), 間引く割合(南), 間引く割合(北)] [m]
   [4.6,1.3,2.9,0.85,2.0,0.30,0.72],    // 0 戸建て・店舗併用住宅
   [3.6,1.7,2.9,0.75,2.1,0.20,0.60],    // 1 共同住宅
   [2.2,1.5,3.6,0.9,2.7,0.10,0.35],     // 2 業務・商業・官公庁
   [6.0,2.4,4.5,2.6,3.6,0.40,0.75]];    // 3 倉庫・工場
-const BLD_WIN_U={uWinNight:{value:0}};
-// シェーダと同じ式(検証用):壁の点(壁に沿う u・高さ y)が窓の中か。top=その壁の上端。nx,nz=壁の外向きの法線(世界座標。z=南)
+const FS_G0=[0.45,0.45,0.45,0.15,0.15,0.45,0.10,0.15];   // 外装ごとの1階の床の高さ(基礎)[m]
+const FH_RANGE=[[2.3,3.4],[2.3,3.4],[2.8,4.8],[3.0,6.0]];  // 窓の種類ごとの階高の範囲[m](階数から求めた値をこの中に収める)
+const FS_NAME=['サイディング','モルタル','ALC','RC','タイル','板張り','金属','カーテンウォール'];
+const BLD_WIN_U={uWinNight:{value:0}, uSkyH:{value:new THREE.Color(0.6,0.7,0.8)}, uSkyZ:{value:new THREE.Color(0.35,0.5,0.75)}, uAttD:{value:150}, uBwDbg:{value:0}};   // uBwDbg=検証用(⑰:外装の区分を色で出す)
 const fract1=v=>v-Math.floor(v);
-function bldWinAt(t,u,y,top,nx,nz){
-  const W=BLD_WIN[t], cu=((u/W[0])%1+1)%1, fl=Math.floor(y/W[2]), cy=y-fl*W[2];
-  if(!(Math.abs(cu-0.5)<W[1]/2/W[0]&&cy>W[3]&&cy<W[4]&&fl*W[2]+W[4]<=top-0.3&&y>0.5)) return false;
-  if(nx===undefined) return true;
-  const l=Math.hypot(nx,nz)||1, twx=-nz/l, twy=nx/l, cid=Math.floor(u/W[0])+Math.floor(twx*3+0.5)*7+Math.floor(twy*3+0.5)*13;
-  const pd=W[5]+(W[6]-W[5])*Math.min(1,Math.max(0,-nz/l)), hc=fract1(Math.sin(cid*12.9898+4.1)*43758.5453);
-  return hc>=pd;
+/* 外装の乱数:整数 n と塩 s から 0〜288/289 の値。単精度の浮動小数でも整数の掛け算が丸まらない形(289 を法とする置換)にして、
+   シェーダ(GPU の単精度)と検証用の bldFacadeAt(倍精度)で同じ値になるようにする(sin の乱数は大きな数で GPU と食い違う) */
+const pmod=(x,y)=>x-y*Math.floor(x/y), bp=x=>pmod((34*x+1)*x,289);
+const bh=(n,s)=>{ n=Math.floor(n+0.5); return bp(bp(bp(pmod(n,289))+pmod(Math.floor(n/289),289))+s)/289; };
+const bfl=(f,k)=>Math.floor(f/k+0.001)%2;
+/* 外装の判定(シェーダ bwFacade と同じ式。検証用)。o={wt,fs,u,L,yr(基部からの高さ),H(壁の上端),fh,fl,seed,tx,tz(壁に沿う向き),nz(法線の南の成分),far}
+   戻り値 k:0=壁 1=窓のガラス 2=枠・桟 3=扉 4=店・入口のガラス 5=看板 6=シャッター・雨戸 7=戸袋 8=庇 9=手すり(遠景のバルコニー) 10=雨だれ
+   cell=窓の部屋の番号(夜に灯る)。f=階・i=柱間 */
+function bldFacadeAt(o){
+  const W=BLD_WIN[o.wt], P=W[0], g0=FS_G0[o.fs], u=o.u, L=o.L, yr=o.yr, fh=o.fh, nst=Math.floor((o.fl||0)/128+0.001), fl=(o.fl||0)-nst*128, res={k:0,cell:null,f:-1,i:-1};
+  const m=0.45, nb=L-2*m>0.8?Math.max(1,Math.floor((L-2*m)/P+0.35)):0, bw=nb>0?(L-2*m)/nb:1;
+  const i=Math.floor((u-m)/bw), x=(u-m)-(i+0.5)*bw, inb=nb>0&&i>=0&&i<nb;
+  const f=Math.floor((yr-g0)/fh), cy=yr-g0-f*fh;
+  const wid=(o.seed%97)*3+Math.floor(o.tx*3+0.37)*7+Math.floor(o.tz*3+0.37)*13, cid=i+wid*31;
+  res.f=f; res.i=inb?i:-1;
+  const door=bfl(fl,1), shop=bfl(fl,2), ent=bfl(fl,4), balA=bfl(fl,8), balH=bfl(fl,16), gar=bfl(fl,32), wdoor=bfl(fl,64);
+  if(shop&&yr<g0+fh&&u>0.3&&u<L-0.3){
+    const gs=Math.min(g0+fh-0.5,2.8);
+    if(yr>0.1&&yr<gs){ res.k=bh(wid,11)<0.3?6:(Math.abs(fract1((u-0.3)/1.8+0.5)-0.5)*1.8<0.03||gs-yr<0.06||yr-0.1<0.06?2:4); res.cell='shop'; return res; }
+    if(yr>gs+0.08&&yr<Math.min(gs+0.55,g0+fh-0.05)){ res.k=5; return res; }
+  }
+  if(wdoor&&inb&&i===Math.floor(nb*0.5)&&Math.abs(x)<Math.min(1.8,bw*0.45)&&yr>0.05&&yr<3.6){ res.k=6; return res; }
+  let ig=-1, di=-1;
+  if(door){ di=nb<1.5?0:(bh(wid,12)<0.5?0:nb-1); if(gar&&nb>2.5) ig=di<0.5?nb-1:0; }
+  if(inb&&i===ig&&Math.abs(x)<Math.min(1.25,bw*0.48)&&yr>0.05&&yr<2.25){ res.k=6; return res; }
+  if(inb&&i===di&&f<0.5){
+    if(Math.abs(x)<0.45&&cy>0&&cy<2.05){ res.k=(Math.abs(x)>0.41||cy>2.01)?2:3; return res; }
+    if(Math.abs(x)<0.7&&cy>2.12&&cy<2.24){ res.k=8; return res; }
+    if(Math.abs(x)<0.7&&cy>=0) return res;
+  }
+  if(ent&&inb&&i===Math.floor(nb*0.5)&&yr<g0+2.6){
+    const ew=Math.min(0.95,bw*0.45);
+    if(Math.abs(x)<ew&&yr>g0-0.05&&yr<g0+2.3){ res.k=(Math.abs(x)>ew-0.05||Math.abs(x)<0.02||yr>g0+2.25)?2:4; res.cell='ent'; return res; }
+    if(Math.abs(x)<ew+0.3&&yr>g0+2.35&&yr<g0+2.5){ res.k=8; return res; }
+  }
+  if(!inb||f<0||(nst>0&&f>=nst)) return res;
+  if(shop&&f<0.5) return res;
+  const v=bh(cid,13);
+  let ty=1, a0=W[3], a1=W[4], w=Math.min(W[1],bw*0.86), bd=false;
+  if(o.wt===0){ if(v<0.25){ty=0;w=Math.min(0.6,w);a0=1.15;a1=1.9;} else if(v>0.82&&o.nz>-0.2&&f<1.5){ty=2;w=Math.min(1.65,bw*0.86);a0=0.12;a1=2.0;} }
+  else if(o.wt===1){ if(v<0.3&&o.nz<0.35){ty=0;w=Math.min(0.7,w);a0=1.2;a1=2.0;} }
+  else if(o.wt===2){ ty=3; w=bw*0.9; a1=Math.min(a1,fh-0.55); if(o.fs===7){ty=4;w=bw-0.1;a0=0;a1=fh-0.35;} }
+  if(balA&&f>0.5){ ty=2; w=Math.min(bw*0.8,1.8); a0=0.05; a1=2.05; bd=true; }
+  const bwh=Math.min(L-1.2,3.6);
+  if(balH&&f>0.5&&f<1.5&&Math.abs(u-L*0.5)<bwh*0.5){ ty=2; w=Math.min(bw*0.8,1.7); a0=0.1; a1=2.0; bd=true; }
+  if(o.far&&((balA&&f>0.5&&u>m-0.2&&u<L-m+0.2)||(balH&&f>0.5&&f<1.5&&Math.abs(u-L*0.5)<bwh*0.5+0.1))&&cy<1.1){ res.k=9; return res; }
+  const pd=W[5]+(W[6]-W[5])*Math.min(1,Math.max(0,-o.nz)), hc=bh(cid,14);
+  if(!bd&&ty<3.5&&hc<pd) return res;
+  if(g0+f*fh+a1>o.H-0.3||yr<=0.5) return res;
+  if(cy>a0&&cy<a1&&Math.abs(x)<w*0.5){
+    res.cell=[cid,f];
+    const e=Math.min(w*0.5-Math.abs(x),cy-a0,a1-cy);
+    res.k=e<0.05?2:1;
+    if(res.k===1&&ty>=1&&ty<2.5&&w>0.85&&Math.abs(x)<0.02) res.k=2;
+    if(res.k===1&&ty===3&&Math.abs(fract1(u)-0.5)>0.485) res.k=2;
+    if(res.k===1&&o.wt===0&&ty===1&&bh(cid+307*f,15)<0.08) res.k=6;
+    return res;
+  }
+  if((o.fs===1||o.fs===3||o.fs===4)&&cy<=a0&&cy>a0-0.9&&Math.abs(x)<w*0.5&&bh(cid,16)<0.5){ res.k=10; return res; }
+  if(o.wt===0&&ty===1&&bh(cid,17)<0.45&&w*1.55<bw*0.92){ const sd=bh(cid,18)<0.5?-1:1, xs=x*sd-w*0.5; if(xs>0.02&&xs<0.02+w*0.5&&cy>a0-0.03&&cy<a1+0.05){ res.k=7; return res; } }
+  if(o.wt<=1&&ty<2.5&&bh(o.seed,19)<0.5&&cy>a1+0.04&&cy<a1+0.14&&Math.abs(x)<w*0.5+0.12){ res.k=8; return res; }
+  return res;
 }
-function bldWinPatch(mat,photo){                     // photo=写真の面(昼の暗いガラスは塗らない。夜の明かりは同じ)
+/* 外装の種類(PLATEAU の建物構造 stc:0=不明 1=耐火 2=準防火 3=防火造 4=木造 と窓の種類 wt から。種 seed で振り分ける) */
+function facadeOf(wt,stc,seed,h){
+  const r=((seed*37)%100)/100;
+  if(wt===3) return 6;
+  if(stc===1) return wt===2?(h>=20&&r<0.5?7:(r<0.75?3:4)):(wt===1?(r<0.45?4:3):3);
+  if(stc===2) return wt===0?(r<0.7?2:0):(r<0.6?2:3);
+  if(stc===3) return wt===0?(r<0.6?0:1):(r<0.5?1:0);
+  if(stc===4) return r<0.5?5:1;
+  return wt===0?(r<0.6?0:1):(wt===1?3:(r<0.5?3:4));
+}
+function bldWinPatch(mat,photo){                     // photo=写真の面(昼の外装は塗らない。夜の明かりは同じ)
   mat.userData.bldWin=true; mat.userData.bldWinPhoto=!!photo;
   if(!photo) mat.userData.ortho='roof';               // 屋根(上向きの面)に航空写真(3章)。PLATEAU の写真の面はそちらのまま
-  const par=BLD_WIN.map((r,i)=>(i?'else ':'')+(i<BLD_WIN.length-1?'if(t<'+(i+0.5)+')':'')+'{P='+r[0].toFixed(3)+';ww='+r[1].toFixed(3)+';fh='+r[2].toFixed(3)+';y0='+r[3].toFixed(3)+';y1='+r[4].toFixed(3)+';d0='+r[5].toFixed(3)+';d1='+r[6].toFixed(3)+';}').join(' ');
+  const par=BLD_WIN.map((r,i)=>(i?'else ':'')+(i<BLD_WIN.length-1?'if(t<'+(i+0.5)+')':'')+'{P='+r[0].toFixed(3)+';ww='+r[1].toFixed(3)+';y0='+r[3].toFixed(3)+';y1='+r[4].toFixed(3)+';d0='+r[5].toFixed(3)+';d1='+r[6].toFixed(3)+';}').join(' ');
+  const g0s=FS_G0.map((g,i)=>(i?'else ':'')+(i<FS_G0.length-1?'if(fs<'+(i+0.5)+')':'')+'g='+g.toFixed(3)+';').join(' ');
   mat.onBeforeCompile=function(sh){
     Object.assign(sh.uniforms,BLD_WIN_U); if(!photo) Object.assign(sh.uniforms,ORTHO_U);
-    sh.vertexShader='attribute vec4 aBld; attribute vec2 iBld; varying vec4 vBld; varying vec3 vBW; varying vec3 vBN;\n'+
+    sh.vertexShader='attribute vec4 aBld; attribute vec4 aWal; attribute vec4 iBld; varying vec4 vBld; varying vec4 vWal; varying vec3 vBW; varying vec3 vBN;\n'+
       sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n { vec4 w=vec4(transformed,1.); vec3 n=objectNormal;\n'+
       '#ifdef USE_INSTANCING\n w=instanceMatrix*w; n=mat3(instanceMatrix)*n; vBld=vec4(iBld.x,(modelMatrix*instanceMatrix*vec4(0.,.5,0.,1.)).y,iBld.y,(modelMatrix*instanceMatrix*vec4(0.,-.5,0.,1.)).y);\n'+
-      '#else\n vBld=aBld;\n#endif\n w=modelMatrix*w; vBW=w.xyz; vBN=normalize(mat3(modelMatrix)*n); }');
-    sh.fragmentShader=(photo?'':ORTHO_FS)+'uniform float uWinNight; varying vec4 vBld; varying vec3 vBW; varying vec3 vBN;\n'+
-      'void bwPar(float t,out float P,out float ww,out float fh,out float y0,out float y1,out float d0,out float d1){ '+par+' }\n'+
-      sh.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n float bwWin=0.; vec2 bwCell=vec2(0.);\n'+
+      // 箱:壁に沿う位置と長さは箱の局所座標から(品川版:付属物のバルコニーは作らないので印は付けない)
+      '  float lw=length(instanceMatrix[0].xyz), ld=length(instanceMatrix[2].xyz), ax=step(.5,abs(objectNormal.x)), wl=mix(lw,ld,ax);\n'+
+      '  vWal=vec4(mix((position.x+.5)*lw,(position.z+.5)*ld,ax),wl,iBld.z,iBld.w);\n'+
+      '#else\n vBld=aBld; vWal=aWal;\n#endif\n w=modelMatrix*w; vBW=w.xyz; vBN=normalize(mat3(modelMatrix)*n); }');
+    sh.fragmentShader=(photo?'':ORTHO_FS)+'uniform float uWinNight; uniform vec3 uSkyH; uniform vec3 uSkyZ; uniform float uAttD; uniform float uBwDbg; varying vec4 vBld; varying vec4 vWal; varying vec3 vBW; varying vec3 vBN;\n'+
+      'float bp(float x){ return mod((34.*x+1.)*x,289.); }\n'+
+      'float bh(float n,float s){ n=floor(n+.5); return bp(bp(bp(mod(n,289.))+mod(floor(n/289.),289.))+s)/289.; }\n'+
+      'float bfl(float f,float k){ return mod(floor(f/k+.001),2.); }\n'+
+      'void bwPar(float t,out float P,out float ww,out float y0,out float y1,out float d0,out float d1){ '+par+' }\n'+
+      'float bwG0(float fs){ float g; '+g0s+' return g; }\n'+
+      // bldFacadeAt と同じ式
+      'void bwFacade(float wt,float fs,float u,float L,float yr,float H,float fh,float fl,float seed,vec2 tw,float nz,float far,out float k,out vec2 cell,out vec2 lp){\n'+
+      ' k=0.; cell=vec2(-1.); lp=vec2(0.);\n'+
+      ' float P,w0,y0,y1,d0,d1; bwPar(wt,P,w0,y0,y1,d0,d1); float g0=bwG0(fs);\n'+
+      ' float m=.45, nb=L-2.*m>.8?max(1.,floor((L-2.*m)/P+.35)):0., bw=nb>0.?(L-2.*m)/nb:1.;\n'+
+      ' float i=floor((u-m)/bw), x=(u-m)-(i+.5)*bw; bool inb=nb>0.&&i>=0.&&i<nb;\n'+
+      ' float f=floor((yr-g0)/fh), cy=yr-g0-f*fh;\n'+
+      ' float wid=mod(seed,97.)*3.+floor(tw.x*3.+.37)*7.+floor(tw.y*3.+.37)*13., cid=i+wid*31.;\n'+
+      ' float nst=floor(fl/128.+.001); fl-=nst*128.;\n'+     // 印の上の階数(0=不明)
+      ' float door=bfl(fl,1.), shop=bfl(fl,2.), ent=bfl(fl,4.), balA=bfl(fl,8.), balH=bfl(fl,16.), gar=bfl(fl,32.), wdoor=bfl(fl,64.);\n'+
+      ' if(shop>.5&&yr<g0+fh&&u>.3&&u<L-.3){ float gs=min(g0+fh-.5,2.8);\n'+
+      '  if(yr>.1&&yr<gs){ k=bh(wid,11.)<.3?6.:((abs(fract((u-.3)/1.8+.5)-.5)*1.8<.03||gs-yr<.06||yr-.1<.06)?2.:4.); cell=vec2(-2.,0.); lp=vec2((u-.3)/(L-.6),(yr-.1)/(gs-.1)); return; }\n'+
+      '  if(yr>gs+.08&&yr<min(gs+.55,g0+fh-.05)){ k=5.; lp=vec2(u/L,(yr-gs-.08)/.47); return; } }\n'+
+      ' if(wdoor>.5&&inb&&abs(i-floor(nb*.5))<.5&&abs(x)<min(1.8,bw*.45)&&yr>.05&&yr<3.6){ k=6.; return; }\n'+
+      ' float ig=-1., di=-1.;\n'+
+      ' if(door>.5){ di=nb<1.5?0.:(bh(wid,12.)<.5?0.:nb-1.); if(gar>.5&&nb>2.5) ig=di<.5?nb-1.:0.; }\n'+
+      ' if(inb&&abs(i-ig)<.5&&abs(x)<min(1.25,bw*.48)&&yr>.05&&yr<2.25){ k=6.; return; }\n'+
+      ' if(inb&&abs(i-di)<.5&&f<.5){\n'+
+      '  if(abs(x)<.45&&cy>0.&&cy<2.05){ k=(abs(x)>.41||cy>2.01)?2.:3.; lp=vec2(x/.9+.5,cy/2.05); return; }\n'+
+      '  if(abs(x)<.7&&cy>2.12&&cy<2.24){ k=8.; return; }\n'+
+      '  if(abs(x)<.7&&cy>=0.) return; }\n'+
+      ' if(ent>.5&&inb&&abs(i-floor(nb*.5))<.5&&yr<g0+2.6){ float ew=min(.95,bw*.45);\n'+
+      '  if(abs(x)<ew&&yr>g0-.05&&yr<g0+2.3){ k=(abs(x)>ew-.05||abs(x)<.02||yr>g0+2.25)?2.:4.; cell=vec2(-3.,0.); lp=vec2(x/ew*.5+.5,(yr-g0)/2.3); return; }\n'+
+      '  if(abs(x)<ew+.3&&yr>g0+2.35&&yr<g0+2.5){ k=8.; return; } }\n'+
+      ' if(!inb||f<0.||(nst>.5&&f>nst-.5)) return;\n'+
+      ' if(shop>.5&&f<.5) return;\n'+
+      ' float v=bh(cid,13.), ty=1., a0=y0, a1=y1, w=min(w0,bw*.86); bool bd=false;\n'+
+      ' if(wt<.5){ if(v<.25){ty=0.;w=min(.6,w);a0=1.15;a1=1.9;} else if(v>.82&&nz>-.2&&f<1.5){ty=2.;w=min(1.65,bw*.86);a0=.12;a1=2.;} }\n'+
+      ' else if(wt<1.5){ if(v<.3&&nz<.35){ty=0.;w=min(.7,w);a0=1.2;a1=2.;} }\n'+
+      ' else if(wt<2.5){ ty=3.; w=bw*.9; a1=min(a1,fh-.55); if(fs>6.5){ty=4.;w=bw-.1;a0=0.;a1=fh-.35;} }\n'+
+      ' if(balA>.5&&f>.5){ ty=2.; w=min(bw*.8,1.8); a0=.05; a1=2.05; bd=true; }\n'+
+      ' float bwh=min(L-1.2,3.6);\n'+
+      ' if(balH>.5&&f>.5&&f<1.5&&abs(u-L*.5)<bwh*.5){ ty=2.; w=min(bw*.8,1.7); a0=.1; a1=2.; bd=true; }\n'+
+      ' if(far>.5&&((balA>.5&&f>.5&&u>m-.2&&u<L-m+.2)||(balH>.5&&f>.5&&f<1.5&&abs(u-L*.5)<bwh*.5+.1))&&cy<1.1){ k=9.; lp=vec2(0.,cy/1.1); return; }\n'+
+      ' float pd=mix(d0,d1,clamp(-nz,0.,1.)), hc=bh(cid,14.);\n'+       // 列を間引く(北向きほど多く)
+      ' if(!bd&&ty<3.5&&hc<pd) return;\n'+
+      ' if(g0+f*fh+a1>H-.3||yr<=.5) return;\n'+
+      ' if(cy>a0&&cy<a1&&abs(x)<w*.5){\n'+
+      '  cell=vec2(cid,f); lp=vec2(x/w+.5,(cy-a0)/(a1-a0));\n'+
+      '  float e=min(min(w*.5-abs(x),cy-a0),a1-cy); k=e<.05?2.:1.;\n'+
+      '  if(k<1.5&&ty>=1.&&ty<2.5&&w>.85&&abs(x)<.02) k=2.;\n'+                 // 引き違いの中央の縦桟
+      '  if(k<1.5&&abs(ty-3.)<.5&&abs(fract(u)-.5)>.485) k=2.;\n'+            // 連窓の方立(1m ごと)
+      '  if(k<1.5&&wt<.5&&abs(ty-1.)<.5&&bh(cid+307.*f,15.)<.08) k=6.;\n'+   // 閉じた雨戸
+      '  return; }\n'+
+      ' if((abs(fs-1.)<.5||abs(fs-3.)<.5||abs(fs-4.)<.5)&&cy<=a0&&cy>a0-.9&&abs(x)<w*.5&&bh(cid,16.)<.5){ k=10.; lp=vec2(0.,(a0-cy)/.9); return; }\n'+   // 窓の下の雨だれ
+      ' if(wt<.5&&abs(ty-1.)<.5&&bh(cid,17.)<.45&&w*1.55<bw*.92){ float sd=bh(cid,18.)<.5?-1.:1., xs=x*sd-w*.5; if(xs>.02&&xs<.02+w*.5&&cy>a0-.03&&cy<a1+.05){ k=7.; lp=vec2(xs/(w*.5),0.); return; } }\n'+   // 雨戸の戸袋
+      ' if(wt<1.5&&ty<2.5&&bh(seed,19.)<.5&&cy>a1+.04&&cy<a1+.14&&abs(x)<w*.5+.12){ k=8.; return; }\n'+   // 窓の上の小庇
+      '}\n'+
+      sh.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n float bwWin=0., bwK=0., bwGl=0.; vec2 bwCell=vec2(0.), bwLp=vec2(0.); vec3 bwSign=vec3(0.);\n'+
       (photo?'':' diffuseColor.rgb=orthoMix(diffuseColor.rgb,vBW,smoothstep(.5,.7,vBN.y),0.);\n')+   // 屋根(上向きの面)に航空写真
-      ' if(abs(vBN.y)<.5){ float P,ww,fh,y0,y1,d0,d1; bwPar(vBld.x,P,ww,fh,y0,y1,d0,d1); vec2 tw=normalize(vec2(-vBN.z,vBN.x)); float u=dot(vBW.xz,tw);\n'+
-      '   float yr=vBW.y-vBld.w, cu=fract(u/P), fl=floor(yr/fh), cy=yr-fl*fh, cid=floor(u/P)+floor(tw.x*3.+.5)*7.+floor(tw.y*3.+.5)*13.;\n'+
-      '   float pd=mix(d0,d1,clamp(-normalize(vBN.xz).y,0.,1.)), hc=fract(sin(cid*12.9898+4.1)*43758.5453);\n'+   // 列を間引く(北向きほど多く)
-      '   if(abs(cu-.5)<ww*.5/P&&cy>y0&&cy<y1&&fl*fh+y1<=vBld.y-vBld.w-.3&&yr>.5&&hc>=pd){ bwWin=1.; bwCell=vec2(cid,fl); } }\n'+
-      (photo?'':' diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.05,.065,.085),bwWin*.85);'))
-      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n if(uWinNight>0.&&bwWin>0.){ float hh=fract(sin(dot(mod(bwCell,vec2(4096.,64.)),vec2(12.9898,78.233)))*43758.5453);\n'+
-      '   if(hh>.42) totalEmissiveRadiance+=vec3(1.,.88,.68)*uWinNight*(.45+.55*fract(hh*7.13)); }');
+      ' if(vBld.x>-.5&&abs(vBN.y)<.5){\n'+
+      // 番号は整数に丸めてから使う(補間された属性はわずかに揺れ、大きな数の sin の乱数が画素ごとに変わって砂目になった)
+      '  float code=floor(vBld.x+.5), wt=mod(code,4.), fs=floor(code/4.), H=vBld.y-vBld.w, yr=vBW.y-vBld.w, u=vWal.x, L=max(vWal.y,.01), fh=max(vWal.z,2.), seed=floor(vBld.z+.5), wfl=floor(vWal.w+.5);\n'+
+      '  vec2 tw=normalize(vec2(-vBN.z,vBN.x)); float nz=normalize(vBN.xz).y, dist=length(vBW-cameraPosition);\n'+
+      '  bwFacade(wt,fs,u,L,yr,H,fh,wfl,seed,tw,nz,step(uAttD,dist),bwK,bwCell,bwLp);\n'+
+      '  bwWin=(bwK>.5&&bwK<1.5)?1.:0.;\n'+
+      '  float wid=mod(seed,97.)*3.+floor(tw.x*3.+.37)*7.+floor(tw.y*3.+.37)*13.;\n'+
+      '  vec3 sp[6]; sp[0]=vec3(.55,.04,.04); sp[1]=vec3(.03,.13,.45); sp[2]=vec3(.04,.30,.12); sp[3]=vec3(.70,.50,.04); sp[4]=vec3(.75,.75,.72); sp[5]=vec3(.75,.25,.04);\n'+
+      '  float si=floor(bh(wid,20.)*5.99); bwSign=si<.5?sp[0]:(si<1.5?sp[1]:(si<2.5?sp[2]:(si<3.5?sp[3]:(si<4.5?sp[4]:sp[5]))));\n'+
+      (photo?'':
+      '  vec3 wc=diffuseColor.rgb; float g0=bwG0(fs), nf=1.-smoothstep(35.,130.,dist), pm=1.;\n'+
+      // 壁の外装の模様(近いほどはっきり)
+      '  if(fs<.5){ float l=fract(yr/.455); pm=mix(1.,l<.035?.84:(l<.07?1.03:1.),nf); if(fract(u/3.03)<.008) pm*=mix(1.,.9,nf); }\n'+
+      '  else if(fs<1.5){ pm=.96+.06*(bh(floor(u*5.)+307.*floor(yr*5.),27.)-.5)*nf+.05*(bh(floor(u*1.3)+307.*floor(yr*1.3),28.)-.5); }\n'+
+      '  else if(fs<2.5){ pm=mix(1.,fract(u/.606)<.03?.88:1.,nf); if(fract((yr-g0)/fh)>.985) pm*=.92; }\n'+
+      '  else if(fs<3.5){ float s=fract((yr-g0)/fh); pm=(s>.965||s<.025)?.92:1.; if(fract(u/4.)<.006) pm*=mix(1.,.92,nf); }\n'+
+      '  else if(fs<4.5){ vec2 tc=vec2(u/.235,yr/.065), tf=fract(tc); pm=mix(1.,(tf.x<.06||tf.y<.12)?.82:(.93+.12*bh(floor(tc.x)+307.*floor(tc.y),29.)),1.-smoothstep(20.,70.,dist)); pm*=.97+.06*bh(floor(u/.9)+307.*floor(yr/.6),30.); }\n'+
+      '  else if(fs<5.5){ float bi=floor(yr/.21); pm=mix(1.,(fract(yr/.21)<.07?.78:1.)*(.9+.18*bh(bi+3.*seed,31.)),nf*.8+.2); }\n'+
+      '  else if(fs<6.5){ pm=1.-.08*nf+.08*cos(6.2832*u/.2)*nf; }\n'+
+      '  else { float s=fract((yr-g0)/fh); pm=s>.88?.75:.95; }\n'+
+      // 陰:足元・角・軒下。壁ごとの明るさのゆらぎ
+      '  float ao=(1.-.22*exp(-max(yr,0.)/.7))*(1.-.10*(exp(-u/.35)+exp(-max(L-u,0.)/.35)));\n'+
+      '  if(wt<.5) ao*=1.-.22*exp(-max(H-yr,0.)/.35);\n'+
+      '  float tint=.94+.12*bh(wid,21.);\n'+
+      '  vec3 col=wc*pm*tint;\n'+
+      '  if(g0>.3&&yr<.42) col=vec3(.30,.30,.29)*(.92+.08*bh(floor(u*4.)+307.*floor(yr*4.),32.));\n'+       // 基礎のコンクリート
+      '  if(fs>2.5&&fs<4.5&&H-yr<.12) col=wc*1.08;\n'+                                       // RC の笠木
+      '  float fr=bh(seed,22.); vec3 fcol=fr<.45?vec3(.42,.44,.45):(fr<.7?vec3(.10,.08,.06):(fr<.9?vec3(.65,.65,.63):vec3(.04,.04,.045)));\n'+   // 枠:銀・ブロンズ・白・黒
+      '  float dr=bh(wid,23.); vec3 dcol=dr<.3?vec3(.08,.05,.03):(dr<.55?vec3(.25,.14,.07):(dr<.8?vec3(.20,.21,.22):vec3(.70,.70,.68)));\n'+
+      '  if(bwK>.5){\n'+
+      '   if(bwK<1.5){ float cn=bwCell.x+307.*bwCell.y, cv=bh(cn,24.); vec3 g=vec3(.035,.04,.045);\n'+
+      '    if(wt>1.5&&wt<2.5){ if(cv<.45&&fract(bwLp.y*14.)<.5) g=vec3(.28,.28,.26); }\n'+                    // 業務:ブラインド
+      '    else if(cv<.35) g=mix(g,vec3(.5,.5,.48),.5);\n'+                                                      // レース
+      '    else if(cv<.62){ float op=.2+.5*bh(cn,25.); if(bwLp.x<op||bwLp.x>1.-op*.3) g=mix(vec3(.45,.38,.30),vec3(.25,.32,.42),bh(cn,26.))*.8; }\n'+   // カーテン
+      '    col=g; bwGl=1.; }\n'+
+      '   else if(bwK<2.5) col=fcol;\n'+
+      '   else if(bwK<3.5) col=dcol*((bwLp.x>.82&&abs(bwLp.y-.48)<.03)?2.5:1.);\n'+                           // 扉と取っ手
+      '   else if(bwK<4.5){ col=vec3(.12,.11,.10)+vec3(.10,.09,.07)*step(.5,bh(floor(bwLp.x*5.)+7.*seed,33.)); bwGl=.8; }\n'+   // 店・入口のガラス(中が見える)
+      '   else if(bwK<5.5) col=bwSign*(abs(bwLp.y-.5)<.25&&fract(bwLp.x*7.)<.6?1.25:1.);\n'+                   // 看板
+      '   else if(bwK<6.5) col=vec3(.33,.34,.35)*(fract(yr/.09)<.15?.8:1.);\n'+                                   // シャッター・雨戸
+      '   else if(bwK<7.5) col=wc*.9*(fract(bwLp.x*6.)<.12?.85:1.);\n'+                                         // 戸袋
+      '   else if(bwK<8.5) col=vec3(.16,.16,.17);\n'+                                                             // 庇
+      '   else if(bwK<9.5) col=mix(wc,vec3(.72,.72,.70),.55)*(bwLp.y>.92?.75:1.);\n'+                           // 遠景のバルコニーの手すり
+      '   else col=wc*pm*tint*(1.-.10*(1.-bwLp.y));\n'+                                                           // 雨だれ
+      '  }\n'+
+      '  diffuseColor.rgb=col*mix(ao,1.,bwGl*.5);\n')+
+      ' }\n')
+      .replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n'+
+      (photo?'':' if(bwGl>0.){ vec3 V=normalize(vBW-cameraPosition), Nn=normalize(vBN), R=reflect(V,Nn); float F=.05+.55*pow(1.-clamp(abs(dot(V,Nn)),0.,1.),3.);\n'+
+      '   vec3 sky=R.y>0.?mix(uSkyH,uSkyZ,clamp(R.y*1.6,0.,1.)):uSkyH*(.45+.3*(R.y+1.)); totalEmissiveRadiance+=sky*F*bwGl*.6; }\n')+   // ガラスに空が映る
+      ' if(uWinNight>0.){\n'+
+      '  if(bwWin>0.){ float cn=bwCell.x+307.*bwCell.y, hh=bh(cn,34.), cv=bh(cn,24.);\n'+                     // 部屋ごとに灯る(4割は消灯)
+      '   if(hh>.42) totalEmissiveRadiance+=vec3(1.,.88,.68)*uWinNight*(.45+.55*bh(cn,35.))*(cv<.62?.75:1.); }\n'+
+      '  if(bwK>3.5&&bwK<4.5&&bwCell.x<-1.5) totalEmissiveRadiance+=vec3(1.,.93,.80)*uWinNight*1.3;\n'+          // 店と入口は灯る
+      '  if(bwK>4.5&&bwK<5.5) totalEmissiveRadiance+=(bwSign*.8+.2)*uWinNight*1.2;\n'+                           // 看板
+      ' }')
+      // 検証用(⑰ verify_facade.js):外装の区分 k と夜に灯る部屋かを色で出す(トーンマッピングの後で上書き)
+      .replace('#include <dithering_fragment>','#include <dithering_fragment>\n if(uBwDbg>.5) gl_FragColor=vec4((bwK*16.+8.)/255.,(bwWin>0.&&bh(bwCell.x+307.*bwCell.y,34.)>.42)?1.:0.,(vBld.x>-.5&&abs(vBN.y)<.5)?1.:0.,1.);');
   };
-  mat.customProgramCacheKey=()=>photo?'bldWinP':'bldWin';
+  mat.customProgramCacheKey=()=>photo?'bldFacadeP':'bldFacade';
 }
-// 用途(PLATEAU の use)→ 窓の種類。不明は高さで
+// 用途(PLATEAU の use)→ 窓の種類。不明(0)は高さで。供給処理(9)は倉庫・工場の窓
 const winTypeOf=(use,h)=>use===1||use===2?0:use===3?1:(use>=4&&use<=6)?2:(use>=7)?3:(h<9.5?0:(h<25?1:2));
 const ROOF_GRAY=[0x5d6166,0x6b6f73,0x50545a,0x787b7e,0x62656a];   // 三角屋根(スレート・瓦)は灰色(利用者指示)
 const CITY_LODS=[];                       // まとまりごとの [近・中・遠] の Mesh と外接球
@@ -4642,6 +4832,11 @@ if(PLB){
   const L=plbDecode(PLB.b64), CH=new Map(), CHL=240;
   const N_L2=PLB.lod2b64?plbDecodeL2(PLB.lod2b64,L):0;     // LOD2(屋根の形)がある建物は近くで面そのものを描く
   if(PLB.use64){const u=atob(PLB.use64); for(let i=0;i<L.length&&i<u.length;i++) L[i].use=u.charCodeAt(i);}   // 用途の区分(plateau_import.py の USAGE)
+  /* 建物構造 stc(1 耐火・2 準防火・3 防火造・4 木造。京王の PLATEAU は属性を持つ)は国土地理院のデータに無いので用途から推定する:
+     戸建て・併用住宅(用途 1・2)=準防火 45%・防火 35%・木造 20%(足跡の位置から決める=毎回同じ)、共同住宅・業務・ほか=耐火。階数 st は
+     tools/gsi_city.py が高さ÷3.3 で入れた推定 */
+  for(const b of L){ const u=b.use||0;
+    if(u===1||u===2){ const r=(Math.abs(Math.round(b.P[0][0]*7.3+b.P[0][1]*3.9))%100)/100; b.stc=r<0.45?2:(r<0.8?3:4); } else b.stc=1; }
   const N_TX=(PTX&&N_L2)?plbDecodeTex(PTX.uv64,L):null;   // 写真テクスチャ(面の数が合うときだけ)
   if(N_TX) ptxLoad();
   /* 用途ごとの外壁の色(sRGB)。住宅は暖かい白〜ベージュ、共同住宅は明るい灰〜生成り、業務は青灰、商業は温かい灰と
@@ -4657,6 +4852,8 @@ if(PLB){
     [0xb3b9bd,0xa8aeb3,0xbfc3c6],                                // 8 工場
     [0xc0c4c0,0xb4b8b4],                                         // 9 供給処理
     [0xc8c6b8,0xbdbbad]];                                        // 10 農林漁業ほか
+  const PAL_SIDING=[0x8a8f94,0x6f747a,0xa59a8c,0x7b6a5c,0x5b6470,0xc9c2b4], PAL_WOOD=[0x8a6a4c,0x7a5c40,0x9c7b5a,0x6b5038],
+        PAL_TILE=[0xb59577,0xa88a70,0xc4a888,0x9c7d63,0xd2c1a4];
   const PALS=[[0xe2dccf,0xd9d2c4,0xcfc8bb,0xe6e2d8,0xc9c3b8,0xd8d4cc],    // 低層(戸建て・アパート)
               [0xc9c8c4,0xd4d0c8,0xbdbab4,0xcfd3d6,0xd8d3c9],             // 中層
               [0xc2c8cf,0xb7bec6,0xd0d4d8,0xc8c4bd]];                      // 高層
@@ -4692,18 +4889,27 @@ if(PLB){
     }
     if(!best) continue;
     const ox=best.uc*best.ux-best.vc*best.uz, oz=best.uc*best.uz+best.vc*best.ux, a=Math.atan2(best.uz,best.ux);
-    const h=b.h, pal=PAL_USE[b.use||0]||PALS[h<9.5?0:(h<25?1:2)], hex=pal[Math.abs(Math.round(cx*7+cz*13))%pal.length];
+    const h=b.h, pk=Math.abs(Math.round(cx*7+cz*13));
     const r=Math.hypot(best.w,best.d)/2, k=Math.floor(s/CHL);
     let c=CH.get(k); if(!c){c={B:[],bx:[1e9,-1e9,1e9,-1e9,-1e9,1e9]}; CH.set(k,c);}   // bx=[x0,x1,z0,z1,上端,基部]
     /* 窓の種類と種。三角屋根:LOD2 が無い戸建て(床面積 250m² 以下・高さ 4.5〜12m)は近くで切妻屋根にする(利用者指示)。
        PLATEAU の高さは最も高い所(棟)までなので、軒=高さ−屋根の高さ(短辺の 0.29 倍=約30°・2.4m まで) */
-    const wt=winTypeOf(b.use||0,h), seed=Math.abs(Math.round(cx*3.1+cz*7.7))%997;
-    const gable=!b.l2&&wt===0&&best.w*best.d<=250&&h>=4.5&&h<=12, rh=gable?Math.min(2.4,0.29*Math.min(best.w,best.d)):0;
+    const wt=winTypeOf(b.use||0,h), seed=Math.abs(Math.round(cx*3.1+cz*7.7))%997, stc=b.stc||0, fs=facadeOf(wt,stc,seed,h);
+    const resi=b.use>=1&&b.use<=3;                     // 住宅の組(色を業務・工場倉庫と分ける)
+    const pal=resi&&fs===0&&pk%100<35?PAL_SIDING:(resi&&fs===5?PAL_WOOD:(resi&&fs===4?PAL_TILE:(PAL_USE[b.use||0]||PALS[h<9.5?0:(h<25?1:2)]))), hex=pal[pk%pal.length];
+    const gable=!b.l2&&wt===0&&best.w*best.d<=250&&h>=4.5&&h<=12;
+    // 屋根の高さ:階数が分かれば、軒が階数ぶんの窓の入る高さ(基礎+階数×2.45m+0.25m)より下がらないように勾配を緩める(0.8m まで)
+    const rh=gable?Math.max(Math.min(0.8,h*0.2),Math.min(2.4,0.29*Math.min(best.w,best.d),b.st>0?h-(FS_G0[fs]+b.st*2.45+0.25):9)):0;
     let eave=h-rh;
     if(b.l2){ let m=1e9; for(const S of b.l2) if(S.t===1) for(const v of S.V) m=Math.min(m,v[1]); eave=m<1e8?m:h; }   // LOD2:屋根面の最も低い所
     const roofHex=(gable||b.l2)?ROOF_GRAY[seed%ROOF_GRAY.length]:null;
+    /* 階高:階数 st があれば、壁の高さ(軒。陸屋根はパラペットの分を除く)から 1階の床(基礎)を引いて階数で割り、窓の種類ごとの範囲(FH_RANGE)に
+       収める。範囲外(データの食い違い)は窓の種類の既定の階高 */
+    const flat=!gable&&!b.l2, pp=flat&&h>=4.5?((wt===1||wt===2)?0.6:0.3):0, g0=FS_G0[fs];
+    let fh=BLD_WIN[wt][2]; if(b.st>0){ const q=(eave-pp-g0)/b.st, cap=FH_RANGE[wt]; if(q>=2.2&&q<=6) fh=Math.min(cap[1],Math.max(cap[0],q)); }
     const base=terMin(P);                              // 基部=足跡の下の地表の最も低い所(地形が無ければ 0)。坂の上の側は地面に埋まる
     c.B.push({P:P,h:h,l2:b.l2||null,cx:cx,cz:cz,ox:ox,oz:oz,w:best.w,d:best.d,a:a,ux:best.ux,uz:best.uz,hex:(b.texHex!==undefined?ptxBoxHex(b.texHex):hex),wt:wt,seed:seed,
+      fs:fs,stc:stc,st:b.st||0,use:b.use||0,fh:fh,pp:pp,
       gable:gable,rh:rh,eave:eave,roofHex:roofHex,base:base,big:best.w*best.d>=120||h>=9.5});   // 遠くでも描く:120m²以上か9.5m以上(集合住宅・大きな家)
     c.bx[0]=Math.min(c.bx[0],ox-r); c.bx[1]=Math.max(c.bx[1],ox+r); c.bx[2]=Math.min(c.bx[2],oz-r); c.bx[3]=Math.max(c.bx[3],oz+r); c.bx[4]=Math.max(c.bx[4],base+h); c.bx[5]=Math.min(c.bx[5],base);
     // 足跡の格子(樹木・街灯が中や縁に入らない)。外接矩形+余白が掛かるセル全部に入れる。外接矩形 bb は plbHit の前さばき
@@ -4714,7 +4920,7 @@ if(PLB){
       }
     CITY.buildings.push({s:s,off:off,x:ox,z:oz,w:best.w,d:best.d,h:h,a:a,r:r,poly:P,plateau:true,lod2:b.l2?b.l2.length:0,use:b.use||0,hex:hex,
       texHex:(b.texHex!==undefined?b.texHex:null),tex:b.texN||0,
-      wt:wt,roof:gable?'切妻':(b.l2?'LOD2':'陸屋根'),eave:eave,base:base,chunk:k});
+      wt:wt,roof:gable?'切妻':(b.l2?'LOD2':'陸屋根'),eave:eave,base:base,chunk:k,fs:fs,stc:stc,st:b.st||0,fh:fh,seed:seed});
     nIn++;
   }
   /* 中・遠は単位の箱のインスタンス(まとまりごとに外接球を持たせる)。屋根は頂点カラーで少し暗く */
@@ -4729,35 +4935,57 @@ if(PLB){
   const sphere=(bx)=>new THREE.Sphere(new THREE.Vector3((bx[0]+bx[1])/2,(bx[4]+bx[5])/2,(bx[2]+bx[3])/2),Math.hypot(bx[1]-bx[0],bx[4]-bx[5],bx[3]-bx[2])/2);
   const inst=(list,bx)=>{
     if(!list.length) return null;
-    const g=boxGeo(), im=new THREE.InstancedMesh(g,MAT_B,list.length), ib=new Float32Array(list.length*2);
+    const g=boxGeo(), im=new THREE.InstancedMesh(g,MAT_B,list.length), ib=new Float32Array(list.length*4);
     list.forEach((b,j)=>{e.set(0,-b.a,0);q.setFromEuler(e);m4.compose(v3.set(b.ox,b.base+b.h/2,b.oz),q,sc.set(b.w,b.h,b.d));
-      im.setMatrixAt(j,m4); im.setColorAt(j,setSrgb(col,b.hex)); ib[2*j]=b.wt; ib[2*j+1]=b.seed;});
-    g.setAttribute('iBld',new THREE.InstancedBufferAttribute(ib,2));   // 窓の種類と種(上端は箱の上面)
+      im.setMatrixAt(j,m4); im.setColorAt(j,setSrgb(col,b.hex)); ib[4*j]=b.wt+4*b.fs; ib[4*j+1]=b.seed; ib[4*j+2]=b.fh; ib[4*j+3]=128*Math.min(b.st||0,60);});
+    g.setAttribute('iBld',new THREE.InstancedBufferAttribute(ib,4));   // 窓の種類+4×外装・種・階高・階数(上端・基部は箱の上面・下面)
     g.boundingSphere=sphere(bx); im.frustumCulled=true;
     im.instanceMatrix.needsUpdate=true; if(im.instanceColor) im.instanceColor.needsUpdate=true;
     scene.add(im); return im;
   };
-  /* 近くは足跡の押し出し。近づいたまとまりで初めて作る(全部を先に作ると頂点だけで数百MBになる) */
+  /* 壁ごとの1階の印(bldFacadeAt の fl)。道路に面する壁:壁の中ほどから外へ 2.5m・5m が道路の面。
+     戸建ての玄関(道路に面した最も長い壁、無ければ最も南の壁)と車庫、店舗併用・商業の店先、共同住宅・業務の入口、倉庫・工場の大きな扉。
+     (京王から取り込み。バルコニーの印 8・16 は付属物を作らないので付けない) */
+  const floorsOf=b=>{ const H=(b.gable?b.eave:b.h-b.pp), g0=FS_G0[b.fs]; return Math.max(0,Math.floor((H-0.3-2.0-g0)/b.fh)+1); };
+  const wallFlags=(b,WL)=>{
+    const roadSide=w=>{ if(!PLL) return false; const mx=(w.a[0]+w.d[0])/2, mz=(w.a[1]+w.d[1])/2;
+      return roadHit(mx+w.nx*2.5,mz+w.nz*2.5,0.6)||roadHit(mx+w.nx*5,mz+w.nz*5,0.6); };
+    for(const w of WL) w.road=w.L>=2.2&&roadSide(w);
+    const byL=(p,q)=>q.L-p.L, roads=WL.filter(w=>w.road).sort(byL), shopUse=b.use===2||b.use===5;
+    const nbOf=L=>L-0.9>0.8?Math.max(1,Math.floor((L-0.9)/BLD_WIN[b.wt][0]+0.35)):0;
+    if(shopUse) for(const w of roads.slice(0,2)) if(w.L>=3) w.fl|=2;
+    const shopW=WL.some(w=>w.fl&2);
+    if(b.wt===0&&!shopW){
+      const w=roads[0]||WL.filter(q=>q.L>=2.2).sort((p,q)=>q.nz-p.nz)[0];
+      if(w){ w.fl|=1; if(w.road&&w.L>=6.5&&b.seed%3===0&&nbOf(w.L)>=3) w.fl|=32; }
+    }
+    if((b.wt===1||b.wt===2)&&!shopW){ const w=roads[0]||WL.slice().sort(byL)[0]; if(w&&w.L>=3) w.fl|=4; }
+    if(b.wt===3){ const w=roads[0]; if(w&&w.L>=4.5) w.fl|=64; }
+  };
+  /* 近くは足跡の押し出し。近づいたまとまりで初めて作る(全部を先に作ると頂点だけで数百MBになる)。
+     壁ごとに壁に沿う位置 u・長さ L・階高・1階の印(頂点の属性 aWal)を持たせる(外装のシェーダ bwFacade)。
+     陸屋根はパラペット(屋根の面を pp 下げ、内側の面を立てる=外装は描かない) */
   const detail=(C)=>{
-    const P=[],N=[],I=[],Cc=[],AB=[], c=new THREE.Color(), TX=new Map();   // TX=詰め合わせごとの写真の形
+    const P=[],N=[],I=[],Cc=[],AB=[],AW=[], c=new THREE.Color(), TX=new Map();   // TX=詰め合わせごとの写真の形
     C.pend=false; C.need=[];                           // 写真の画像がまだ読めていない詰め合わせ(読めたら作り直す)
-    let cur=[0,0,0,0];                                 // 今積んでいる建物の窓の種類・壁の上端・種・基部(頂点の属性 aBld。高さは世界座標)
-    const triT=(a,va,vb,vc,ta,tb,tc,n)=>{ let q=TX.get(a); if(!q){q={P:[],N:[],I:[],U:[],AB:[]};TX.set(a,q);}
-      const o=q.P.length/3; for(const v of [va,vb,vc]){q.P.push(v[0],v[1],v[2]);q.N.push(n[0],n[1],n[2]);q.AB.push(cur[0],cur[1],cur[2],cur[3]);}
+    let cur=[0,0,0,0], aw0=[0,0,0,0];                  // 今積んでいる建物の 外装の番号・壁の上端・種・基部(aBld)/壁の属性の既定(aWal)
+    const triT=(a,va,vb,vc,ta,tb,tc,n)=>{ let q=TX.get(a); if(!q){q={P:[],N:[],I:[],U:[],AB:[],AW:[]};TX.set(a,q);}
+      const o=q.P.length/3; for(const v of [va,vb,vc]){q.P.push(v[0],v[1],v[2]);q.N.push(n[0],n[1],n[2]);q.AB.push(cur[0],cur[1],cur[2],cur[3]);q.AW.push(aw0[0],aw0[1],aw0[2],aw0[3]);}
       q.U.push(ta[0],ta[1],tb[0],tb[1],tc[0],tc[1]);
       const ux=vb[0]-va[0],uy=vb[1]-va[1],uz=vb[2]-va[2],vx=vc[0]-va[0],vy=vc[1]-va[1],vz=vc[2]-va[2];
       if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) q.I.push(o,o+1,o+2); else q.I.push(o,o+2,o+1);};
-    const quad=(a,b,cc,d,n,cl)=>{const o=P.length/3; for(const p of [a,b,cc,d]){P.push(p[0],p[1],p[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);}
+    const quad=(a,b,cc,d,n,cl,aw)=>{const o=P.length/3; [a,b,cc,d].forEach((p,j)=>{P.push(p[0],p[1],p[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);const w=aw?aw[j]:aw0;AW.push(w[0],w[1],w[2],w[3]);});
       // 法線の向きに表を向ける
       const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=cc[0]-a[0],vy=cc[1]-a[1],vz=cc[2]-a[2];
       if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) I.push(o,o+1,o+2,o,o+2,o+3); else I.push(o,o+2,o+1,o,o+3,o+2);};
-    const tri=(a,b2,cc,n,cl)=>{const o=P.length/3; for(const q of [a,b2,cc]){P.push(q[0],q[1],q[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);}
+    const tri=(a,b2,cc,n,cl,aw)=>{const o=P.length/3; [a,b2,cc].forEach((q,j)=>{P.push(q[0],q[1],q[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);const w=aw?aw[j]:aw0;AW.push(w[0],w[1],w[2],w[3]);});
       const ux=b2[0]-a[0],uy=b2[1]-a[1],uz=b2[2]-a[2],vx=cc[0]-a[0],vy=cc[1]-a[1],vz=cc[2]-a[2];
       if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) I.push(o,o+1,o+2); else I.push(o,o+2,o+1);};
     for(const b of C.B){
       setSrgb(c,b.hex); const roof=c.clone().multiplyScalar(0.86), Q=b.P, h=b.h;
       const gray=b.roofHex!==null?setSrgb(new THREE.Color(),b.roofHex):roof, y0=b.base;   // y0=基部(地形の上)
-      cur=[b.wt,y0+b.eave,b.seed,y0];
+      const code=b.wt+4*b.fs;
+      cur=[code,y0+b.eave,b.seed,y0];
       if(b.l2){
         /* LOD2:屋根面・壁面をそのまま。屋根は上向き、壁は建物の重心から外向きに表を向ける。傾いた屋根面は灰色(陸屋根はそのまま) */
         for(const S of b.l2){
@@ -4767,7 +4995,7 @@ if(PLB){
             let mx=0,mz=0; for(const v of S.V){mx+=v[0];mz+=v[2];} mx=mx/S.V.length-b.cx; mz=mz/S.V.length-b.cz;
             if(n[0]*mx+n[2]*mz<0) n=[-n[0],-n[1],-n[2]];
           }
-          if(S.t!==1){ let my=-1e9; for(const v of S.V) my=Math.max(my,v[1]); cur=[b.wt,y0+Math.min(b.eave,my),b.seed,y0]; }   // 壁ごとの上端(低い棟の壁)
+          if(S.t!==1){ let my=-1e9; for(const v of S.V) my=Math.max(my,v[1]); cur=[code,y0+Math.min(b.eave,my),b.seed,y0]; }   // 壁ごとの上端(低い棟の壁)
           if(S.uv&&PTX_READY.ok[S.ta]){                  // 写真のある面
             const U=S.uv, uvOf=i=>[U[2*i],U[2*i+1]];
             for(const t of r.T) triT(S.ta,V[t[0]],V[t[1]],V[t[2]],uvOf(t[0]),uvOf(t[1]),uvOf(t[2]),n);
@@ -4780,10 +5008,17 @@ if(PLB){
         continue;
       }
       const eave=b.gable?b.eave:h;                    // 壁の上端(切妻は軒まで)
+      const WL=[];
       for(let i=0;i<Q.length;i++){
-        const a=Q[i], d=Q[(i+1)%Q.length], mx=(a[0]+d[0])/2-b.cx, mz=(a[1]+d[1])/2-b.cz;
+        const a=Q[i], d=Q[(i+1)%Q.length], mx=(a[0]+d[0])/2-b.cx, mz=(a[1]+d[1])/2-b.cz, L=Math.hypot(d[0]-a[0],d[1]-a[1]);
         let nx=d[1]-a[1], nz=-(d[0]-a[0]); const l=Math.hypot(nx,nz)||1; nx/=l; nz/=l; if(nx*mx+nz*mz<0){nx=-nx;nz=-nz;}
-        quad([a[0],y0,a[1]],[d[0],y0,d[1]],[d[0],y0+eave,d[1]],[a[0],y0+eave,a[1]],[nx,0,nz],c);
+        WL.push({a:a,d:d,nx:nx,nz:nz,L:L,tx:(d[0]-a[0])/(L||1),tz:(d[1]-a[1])/(L||1),fl:0});
+      }
+      wallFlags(b,WL); b.walls=WL;                    // 検証が壁ごとの印を読む
+      for(const w of WL){
+        const fl=w.fl+128*Math.min(b.st||0,60);         // 印の上に階数(128 倍。窓は階数の段まで)
+        const aw=[[0,w.L,b.fh,fl],[w.L,w.L,b.fh,fl],[w.L,w.L,b.fh,fl],[0,w.L,b.fh,fl]];
+        quad([w.a[0],y0,w.a[1]],[w.d[0],y0,w.d[1]],[w.d[0],y0+eave,w.d[1]],[w.a[0],y0+eave,w.a[1]],[w.nx,0,w.nz],c,aw);
       }
       if(b.gable){
         /* 切妻屋根:外接矩形(長い辺の向きに棟)の上に、軒の出 0.35m。妻面(三角)は壁の色。軒の高さの平らな蓋は作らない
@@ -4795,19 +5030,24 @@ if(PLB){
           const k=(E+ov)/E;                                   // 軒の出のぶん屋根面を下げる(勾配はそのまま)
           quad(W(-L-ov,sg*(E+ov),top-b.rh*k),W(L+ov,sg*(E+ov),top-b.rh*k),W(L+ov,0,top),W(-L-ov,0,top),n,gray);
           quad(W(L+ov,sg*(E+ov),top-b.rh*k),W(-L-ov,sg*(E+ov),top-b.rh*k),W(-L-ov,0,top),W(L+ov,0,top),[-n[0],-n[1],-n[2]],gray.clone().multiplyScalar(0.6));   // 軒裏
-          tri(W(sg*L,-E,eave),W(sg*L,E,eave),W(sg*L,0,top),[sg*ux,0,sg*uz],c);                     // 妻面
+          const sf=128*Math.min(b.st||0,60), aw=[[0,2*E,b.fh,sf],[2*E,2*E,b.fh,sf],[E,2*E,b.fh,sf]];
+          tri(W(sg*L,-E,eave),W(sg*L,E,eave),W(sg*L,0,top),[sg*ux,0,sg*uz],c,aw);                     // 妻面
         }
         continue;
       }
-      const o=P.length/3;
-      for(const p of Q){P.push(p[0],y0+h,p[1]);N.push(0,1,0);Cc.push(roof.r,roof.g,roof.b);AB.push(cur[0],cur[1],cur[2],cur[3]);}
+      const yr=y0+h-b.pp, o=P.length/3;                // 屋根の面はパラペットの高さ pp だけ下げる
+      for(const p of Q){P.push(p[0],yr,p[1]);N.push(0,1,0);Cc.push(roof.r,roof.g,roof.b);AB.push(cur[0],cur[1],cur[2],cur[3]);AW.push(0,0,0,0);}
       for(const t of earTri(Q)){
         const A0=Q[t[0]],A1=Q[t[1]],A2=Q[t[2]], up=(A1[1]-A0[1])*(A2[0]-A0[0])-(A1[0]-A0[0])*(A2[1]-A0[1]);   // 上向きなら正
         if(up>=0) I.push(o+t[0],o+t[1],o+t[2]); else I.push(o+t[0],o+t[2],o+t[1]);
       }
+      if(b.pp>0){ const keep=cur; cur=[-1,y0+h,b.seed,y0];   // パラペットの内側の面(外装は描かない=aBld の1つ目が負)
+        for(const w of WL) quad([w.a[0],yr,w.a[1]],[w.d[0],yr,w.d[1]],[w.d[0],y0+h,w.d[1]],[w.a[0],y0+h,w.a[1]],[-w.nx,0,-w.nz],c.clone().multiplyScalar(0.92));
+        cur=keep; }
     }
     const g=facesGeo(P,N,I,Cc); g.boundingSphere=sphere(C.bx);
-    g.setAttribute('aBld',new THREE.Float32BufferAttribute(AB,4));     // 窓の種類・壁の上端・種・基部
+    g.setAttribute('aBld',new THREE.Float32BufferAttribute(AB,4));     // 外装の番号(窓の種類+4×外装)・壁の上端・種・基部
+    g.setAttribute('aWal',new THREE.Float32BufferAttribute(AW,4));     // 壁に沿う位置・壁の長さ・階高・1階の印
     const m=new THREE.Mesh(g,MAT_B); m.visible=false; scene.add(m);
     m.castShadow=true; m.receiveShadow=true; m.layers.enable(FAR_LAYER);   // 遠くの影も。後から作るので applyShadows() の一括設定に載らない
     C.mt=[];                                          // 写真の形(詰め合わせごとに1回の描画)。表示は m と一緒に cityLod が切り替える
@@ -4815,6 +5055,7 @@ if(PLB){
       const gt=facesGeo(q.P,q.N,q.I,null); gt.boundingSphere=sphere(C.bx);
       gt.setAttribute('uv',new THREE.Float32BufferAttribute(q.U,2));
       gt.setAttribute('aBld',new THREE.Float32BufferAttribute(q.AB,4));
+      gt.setAttribute('aWal',new THREE.Float32BufferAttribute(q.AW,4));
       const mt=new THREE.Mesh(gt,ptxMat(a)); mt.visible=false; mt.castShadow=true; mt.receiveShadow=true; mt.layers.enable(FAR_LAYER); mt.userData.ptx=a;
       scene.add(mt); C.mt.push(mt);
     }
@@ -9126,6 +9367,7 @@ const CINE=(function(){
     scene.fog.color.copy(srgb(SKY.HOR));
     scene.fog.near=t.fog[0]*fogMul(); scene.fog.far=t.fog[1]*fogMul();
     scene.background.copy(srgb(SKY.HOR));
+    BLD_WIN_U.uSkyH.value.copy(srgb(SKY.HOR)); BLD_WIN_U.uSkyZ.value.copy(srgb(SKY.TOP));   // 建物の窓ガラスに映る空(8章 bldWinPatch)
     skyDome.material.color.setScalar(1);
     WXB.hi=hemi.intensity; WXB.fog.copy(scene.fog.color); WXB.bg.copy(scene.background);
   }
