@@ -7,7 +7,7 @@
   "overrides": {
     "facade": {
       "status": "partial",
-      "note": "2026-11-20 取り込み(付属物を除く)。stc は用途から・st は gsi_city.py の高さ÷3.3 の推定。付属物(バルコニー・室外機・雨どい・軒樋・屋上の物)と ⑦ の外装の検査(verify_city)は未取り込み。verify_facade.js(⑫)は移植済み"
+      "note": "2026-11-20 取り込み(付属物を含む)。stc は用途から・st は gsi_city.py の高さ÷3.3 の推定。⑦ の外装の検査(verify_city)は未移植(verify_facade.js=⑫ は移植済み)"
     },
     "road-marks": {
       "status": "todo",

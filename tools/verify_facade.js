@@ -134,14 +134,14 @@ function findChromium() {
       im.setMatrixAt(0, new THREE.Matrix4().compose(new THREE.Vector3(0, BASE + h / 2, 0), new THREE.Quaternion(), new THREE.Vector3(w, h, dd)));
       g.setAttribute('iBld', new THREE.InstancedBufferAttribute(new Float32Array([wt + 4 * fs, seed, fh, 128 * nst]), 4)); im.frustumCulled = false;
       g.setAttribute('color', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 3).fill(1), 3));
-      const bal = 0;   // 品川版:付属物(バルコニー)を作らないので、箱の頂点シェーダはバルコニーの印を足さない
+      const bal = (wt === 1 && fs >= 2 && fs <= 4 && w >= 5) ? 8 : 0;
       BLD_WIN_U.uBwDbg.value = 1; BLD_WIN_U.uAttD.value = 1e9;
       // 南の面(z=+dd/2)。u=(x+w/2)
       const S = new THREE.Scene(); void S;
       shoot(im, { wt: wt, fs: fs, L: w, H: h, fh: fh, fl: 128 * nst + bal, seed: seed, tx: -1, tz: 0, nz: 1, far: false }, [0, 1], [0, dd / 2], BASE + h / 2, w, h);
       g.dispose();
     }
-    BLD_WIN_U.uBwDbg.value = 0; BLD_WIN_U.uAttD.value = 150;
+    BLD_WIN_U.uBwDbg.value = 0; BLD_WIN_U.uAttD.value = ATT_NEAR * LOD_STRUCT;
     return st;
   }, REF);
   await b.close();

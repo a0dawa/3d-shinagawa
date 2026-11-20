@@ -4569,7 +4569,7 @@ function polyTri3(V){
 /* 地表に敷く多角形(PLATEAU の道路・緑地)の三角形から、仙川の掘割の中(擁壁の外面より内)を除く。掘割に掛からない
    多角形は earTri のまま。掛かる三角形は辺が 0.6m 以下になるまで2分し、重心が掘割の中なら捨てる
    (縁の凹凸は擁壁の厚さ 0.30m と同じ程度)。戻り値 {V:頂点, T:三角形} */
-/* (京王の facade を 2026-11-19 に取り込み。付属物=バルコニー・室外機・雨どい・軒樋は未取り込み。建物構造 stc と階数 st は
+/* (京王の facade を 2026-11-19〜20 に取り込み。付属物も取り込み済み。建物構造 stc と階数 st は
    国土地理院に無いので、用途と高さから推定する=下の PLB の読み込み) */
 /* ---- 建物の窓(2026-10-12 利用者指示:昼も窓を付ける。夜の窓明かりが建物の外=屋根より上や壁の無い所に出ないように) ----
    窓は**壁の面そのものにシェーダで描く**(以前は夜だけ、建物の外接矩形の側面の殻に窓格子を加算していたので、L字の建物や
@@ -4604,6 +4604,35 @@ const FS_G0=[0.45,0.45,0.45,0.15,0.15,0.45,0.10,0.15];   // 外装ごとの1階�
 const FH_RANGE=[[2.3,3.4],[2.3,3.4],[2.8,4.8],[3.0,6.0]];  // 窓の種類ごとの階高の範囲[m](階数から求めた値をこの中に収める)
 const FS_NAME=['サイディング','モルタル','ALC','RC','タイル','板張り','金属','カーテンウォール'];
 const BLD_WIN_U={uWinNight:{value:0}, uSkyH:{value:new THREE.Color(0.6,0.7,0.8)}, uSkyZ:{value:new THREE.Color(0.35,0.5,0.75)}, uAttD:{value:150}, uBwDbg:{value:0}};   // uBwDbg=検証用(⑰:外装の区分を色で出す)
+const ATT_NEAR=150;                         // 付属物を立体で描く距離[m](升の外接球の縁から)。それより遠くはバルコニーの手すりを塗る
+const ATT_CELL=100;                         // 付属物の升[m]。まとまり(240m×幅940m・外接球の半径 約500m)の単位で近さを見ると、近くのまとまりの付属物を全部描いてしまう
+/* 付属物の記録(detail の C.attS)。形そのものは持たず、1つ 19個の数で残し、近づいたときだけ形にする(makeAtt。数十万個の箱の頂点を
+   全部のまとまりで持つと数百MB になる)。箱=[0,種類,建物の番号,原点 x,z,沿う向き tx,tz,外向き nx,nz,u0,u1,v0,v1,y0,y1,色 r,g,b,下面]、
+   四角形=[1,4点の x,y,z,法線,色]。種類は ATT_KINDS の番号(0=登録しない部品:仕切り・手すりの子・軒樋など) */
+const ATT_KINDS=['','バルコニー','手すり','室外機','雨どい','屋上の室外機','高置水槽','屋上の看板'], ATT_STRIDE=19;   // 5 以上は屋上の物(4面とも描く)
+/* 記録を升(ATT_CELL 四方。記録の足元の中心で振り分ける)に分け、升ごとに外接球(x,y,z,r)と記録の位置 I を持たせる。形は升ごとに
+   近づいたときだけ作る(cityLod)。升の外接球は記録の足元の4隅と上下の端を包む */
+function attCells(S){
+  const M=new Map();
+  for(let i=0;i<S.length;i+=ATT_STRIDE){
+    let xs,zs,y0,y1;
+    if(S[i]===1){ xs=[S[i+1],S[i+4],S[i+7],S[i+10]]; zs=[S[i+3],S[i+6],S[i+9],S[i+12]]; y0=Math.min(S[i+2],S[i+5],S[i+8],S[i+11]); y1=Math.max(S[i+2],S[i+5],S[i+8],S[i+11]); }
+    else{ const o0=S[i+3],o1=S[i+4],tx=S[i+5],tz=S[i+6],nx=S[i+7],nz=S[i+8]; xs=[];zs=[];
+      for(const u of [S[i+9],S[i+10]]) for(const v of [S[i+11],S[i+12]]){ xs.push(o0+tx*u+nx*v); zs.push(o1+tz*u+nz*v); }
+      y0=S[i+13]; y1=S[i+14]; }
+    const x0=Math.min(...xs),x1=Math.max(...xs),z0=Math.min(...zs),z1=Math.max(...zs), k=Math.floor((x0+x1)/2/ATT_CELL)+','+Math.floor((z0+z1)/2/ATT_CELL);
+    let c=M.get(k); if(!c){ c={I:[],b:[1e9,-1e9,1e9,-1e9,1e9,-1e9],ma:null}; M.set(k,c); }
+    c.I.push(i); const b=c.b; b[0]=Math.min(b[0],x0); b[1]=Math.max(b[1],x1); b[2]=Math.min(b[2],z0); b[3]=Math.max(b[3],z1); b[4]=Math.min(b[4],y0); b[5]=Math.max(b[5],y1);
+  }
+  const R=[];
+  for(const c of M.values()){ const b=c.b; c.x=(b[0]+b[1])/2; c.z=(b[2]+b[3])/2; c.y=(b[4]+b[5])/2; c.r=Math.hypot(b[1]-b[0],b[3]-b[2],b[5]-b[4])/2+0.01; c.I=Int32Array.from(c.I); R.push(c); }
+  return R; }
+function attBoxes(C){                       // 検証用:種類のある箱を {kind,bi,c(足元の4隅),y0,y1} に戻す
+  const S=C.attS, R=[]; if(!S) return R;
+  for(let i=0;i<S.length;i+=ATT_STRIDE){ if(S[i]!==0||!S[i+1]) continue;
+    const o0=S[i+3],o1=S[i+4],tx=S[i+5],tz=S[i+6],nx=S[i+7],nz=S[i+8], W=(u,v)=>[o0+tx*u+nx*v,o1+tz*u+nz*v];
+    R.push({kind:ATT_KINDS[S[i+1]],bi:S[i+2],c:[W(S[i+9],S[i+11]),W(S[i+10],S[i+11]),W(S[i+10],S[i+12]),W(S[i+9],S[i+12])],y0:S[i+13],y1:S[i+14]}); }
+  return R; }
 const fract1=v=>v-Math.floor(v);
 /* 外装の乱数:整数 n と塩 s から 0〜288/289 の値。単精度の浮動小数でも整数の掛け算が丸まらない形(289 を法とする置換)にして、
    シェーダ(GPU の単精度)と検証用の bldFacadeAt(倍精度)で同じ値になるようにする(sin の乱数は大きな数で GPU と食い違う) */
@@ -4688,9 +4717,10 @@ function bldWinPatch(mat,photo){                     // photo=写真の面(昼�
     sh.vertexShader='attribute vec4 aBld; attribute vec4 aWal; attribute vec4 iBld; varying vec4 vBld; varying vec4 vWal; varying vec3 vBW; varying vec3 vBN;\n'+
       sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n { vec4 w=vec4(transformed,1.); vec3 n=objectNormal;\n'+
       '#ifdef USE_INSTANCING\n w=instanceMatrix*w; n=mat3(instanceMatrix)*n; vBld=vec4(iBld.x,(modelMatrix*instanceMatrix*vec4(0.,.5,0.,1.)).y,iBld.y,(modelMatrix*instanceMatrix*vec4(0.,-.5,0.,1.)).y);\n'+
-      // 箱:壁に沿う位置と長さは箱の局所座標から(品川版:付属物のバルコニーは作らないので印は付けない)
+      // 箱:壁に沿う位置と長さは箱の局所座標から。バルコニーは共同住宅(ALC・RC・タイル)の南向きの 5m 以上の壁
       '  float lw=length(instanceMatrix[0].xyz), ld=length(instanceMatrix[2].xyz), ax=step(.5,abs(objectNormal.x)), wl=mix(lw,ld,ax);\n'+
-      '  vWal=vec4(mix((position.x+.5)*lw,(position.z+.5)*ld,ax),wl,iBld.z,iBld.w);\n'+
+      '  vec3 wn=normalize(mat3(modelMatrix)*n); float iwt=mod(iBld.x,4.), ifs=floor(iBld.x/4.);\n'+
+      '  vWal=vec4(mix((position.x+.5)*lw,(position.z+.5)*ld,ax),wl,iBld.z,iBld.w+((abs(iwt-1.)<.5&&ifs>1.5&&ifs<4.5&&wn.z>.35&&wl>=5.)?8.:0.));\n'+
       '#else\n vBld=aBld; vWal=aWal;\n#endif\n w=modelMatrix*w; vBW=w.xyz; vBN=normalize(mat3(modelMatrix)*n); }');
     sh.fragmentShader=(photo?'':ORTHO_FS)+'uniform float uWinNight; uniform vec3 uSkyH; uniform vec3 uSkyZ; uniform float uAttD; uniform float uBwDbg; varying vec4 vBld; varying vec4 vWal; varying vec3 vBW; varying vec3 vBN;\n'+
       'float bp(float x){ return mod((34.*x+1.)*x,289.); }\n'+
@@ -4814,17 +4844,28 @@ const winTypeOf=(use,h)=>use===1||use===2?0:use===3?1:(use>=4&&use<=6)?2:(use>=7
 const ROOF_GRAY=[0x5d6166,0x6b6f73,0x50545a,0x787b7e,0x62656a];   // 三角屋根(スレート・瓦)は灰色(利用者指示)
 const CITY_LODS=[];                       // まとまりごとの [近・中・遠] の Mesh と外接球
 const TREE_NEAR=150;                       // 木を細かい形で描く距離[m](まとまりの外接球の縁から)
+function attDrop(C){                        // まとまり C の付属物の形を全部捨てる(記録は残す)
+  if(C.attC) for(const a of C.attC) if(a.ma){ scene.remove(a.ma); a.ma.geometry.dispose(); a.ma=null; }
+  C.attN=0; }
 function cityLod(){
   const p=camera.position;
+  BLD_WIN_U.uAttD.value=ATT_NEAR*LOD_STRUCT;      // これより遠くの壁はバルコニーの手すりを塗る(近くは立体の付属物)
   for(const C of CITY_LODS){
     const d=Math.hypot(p.x-C.x,p.y-C.y,p.z-C.z)-C.r, k=d<C.near*LOD_STRUCT?0:(d<C.mid*LOD_STRUCT?1:2);
     if(k===0&&!C.m[0]) C.m[0]=C.make(C);          // 近くの形は初めて近づいたときに作る
     if(k===0&&C.pend&&C.need.every(a=>PTX_READY.ok[a])){   // 写真の画像が読めた:写真の形で作り直す
-      for(const m of [C.m[0]].concat(C.mt||[])){ scene.remove(m); m.geometry.dispose(); }
+      for(const m of [C.m[0]].concat(C.mt||[])){ scene.remove(m); m.geometry.dispose(); }   // 付属物の形は detail が捨てる
       C.m[0]=C.make(C);
     }
     for(let j=0;j<3;j++){const v=(j===k); if(C.m[j]&&C.m[j].visible!==v) C.m[j].visible=v;}
     if(C.mt) for(const m of C.mt) if(m.visible!==(k===0)) m.visible=(k===0);
+    // 付属物は近くだけ(2026-10-29):升ごとに、外接球の縁から ATT_NEAR の内で記録から形を作って描き、その2倍より遠いか
+    // 近くの形の段を離れたら捨てる(記録は残る)
+    if(k>0){ if(C.attN) attDrop(C); }
+    else if(C.attC&&C.makeA){ const AD=ATT_NEAR*LOD_STRUCT;
+      for(const a of C.attC){ const da=Math.hypot(p.x-a.x,p.y-a.y,p.z-a.z)-a.r;
+        if(da<AD){ if(!a.ma){ a.ma=C.makeA(C,a); C.attN++; } if(!a.ma.visible) a.ma.visible=true; }
+        else if(a.ma){ if(da>2*AD){ scene.remove(a.ma); a.ma.geometry.dispose(); a.ma=null; C.attN--; } else if(a.ma.visible) a.ma.visible=false; } } }
   }
 }
 const CITY={buildings:[],trees:[]};    // 検証用の登録簿
@@ -4943,15 +4984,20 @@ if(PLB){
     im.instanceMatrix.needsUpdate=true; if(im.instanceColor) im.instanceColor.needsUpdate=true;
     scene.add(im); return im;
   };
-  /* 壁ごとの1階の印(bldFacadeAt の fl)。道路に面する壁:壁の中ほどから外へ 2.5m・5m が道路の面。
-     戸建ての玄関(道路に面した最も長い壁、無ければ最も南の壁)と車庫、店舗併用・商業の店先、共同住宅・業務の入口、倉庫・工場の大きな扉。
-     (京王から取り込み。バルコニーの印 8・16 は付属物を作らないので付けない) */
+  /* 近くは足跡の押し出し。近づいたまとまりで初めて作る(全部を先に作ると頂点だけで数百MBになる)。
+     2026-10-29:壁ごとに壁に沿う位置 u・長さ L・階高・1階の印(頂点の属性 aWal)を持たせる(外装のシェーダ bwFacade)。
+     陸屋根はパラペット(屋根の面を pp 下げ、内側の面を立てる)。付属物(バルコニー・室外機・雨どい・軒樋・ケラバ・屋上の室外機)は
+     別の形(記録 C.attS を 100m の升 C.attC ごとに、近く ATT_NEAR だけ形にして描く)。付属物の置き場は、ほかの建物の足跡・道路・線路の帯(cityFree)に掛からない所だけ */
+  const plbHitOther=(px,pz,r,own)=>{ const l=PLB_GRID.get(Math.floor(px/PLB_CELL)+','+Math.floor(pz/PLB_CELL));
+    if(l) for(const P of l) if(P!==own&&px>P.bb[0]-r&&px<P.bb[1]+r&&pz>P.bb[2]-r&&pz<P.bb[3]+r&&polyDist(P,px,pz)<r) return true;
+    return false; };
   const floorsOf=b=>{ const H=(b.gable?b.eave:b.h-b.pp), g0=FS_G0[b.fs]; return Math.max(0,Math.floor((H-0.3-2.0-g0)/b.fh)+1); };
+  // 壁ごとの1階の印(bldFacadeAt の fl)。道路に面する壁:壁の中ほどから外へ 2.5m・5m が道路の面
   const wallFlags=(b,WL)=>{
     const roadSide=w=>{ if(!PLL) return false; const mx=(w.a[0]+w.d[0])/2, mz=(w.a[1]+w.d[1])/2;
       return roadHit(mx+w.nx*2.5,mz+w.nz*2.5,0.6)||roadHit(mx+w.nx*5,mz+w.nz*5,0.6); };
     for(const w of WL) w.road=w.L>=2.2&&roadSide(w);
-    const byL=(p,q)=>q.L-p.L, roads=WL.filter(w=>w.road).sort(byL), shopUse=b.use===2||b.use===5;
+    const byL=(p,q)=>q.L-p.L, roads=WL.filter(w=>w.road).sort(byL), shopUse=b.use===2||b.use===5, nf=floorsOf(b);
     const nbOf=L=>L-0.9>0.8?Math.max(1,Math.floor((L-0.9)/BLD_WIN[b.wt][0]+0.35)):0;
     if(shopUse) for(const w of roads.slice(0,2)) if(w.L>=3) w.fl|=2;
     const shopW=WL.some(w=>w.fl&2);
@@ -4961,31 +5007,51 @@ if(PLB){
     }
     if((b.wt===1||b.wt===2)&&!shopW){ const w=roads[0]||WL.slice().sort(byL)[0]; if(w&&w.L>=3) w.fl|=4; }
     if(b.wt===3){ const w=roads[0]; if(w&&w.L>=4.5) w.fl|=64; }
+    if(b.wt===1&&b.fs>=2&&b.fs<=4&&nf>=2) for(const w of WL) if(w.nz>0.35&&w.L>=5&&segFree(b,w,0.2,w.L-0.2,1.15)) w.fl|=8;
+    if(b.wt===0&&!shopW&&nf>=2&&b.fs!==6&&bh(b.seed,40)<0.5){
+      const w=WL.filter(q=>q.nz>0.35&&q.L>=4&&!(q.fl&8)).sort((p,q)=>q.nz-p.nz)[0];
+      if(w){ const bwh=Math.min(w.L-1.2,3.6); if(segFree(b,w,w.L/2-bwh/2,w.L/2+bwh/2,0.95)) w.fl|=16; }
+    }
   };
-  /* 近くは足跡の押し出し。近づいたまとまりで初めて作る(全部を先に作ると頂点だけで数百MBになる)。
-     壁ごとに壁に沿う位置 u・長さ L・階高・1階の印(頂点の属性 aWal)を持たせる(外装のシェーダ bwFacade)。
-     陸屋根はパラペット(屋根の面を pp 下げ、内側の面を立てる=外装は描かない) */
+  // 壁 w の外へ dOut まで、u0〜u1 の帯がほかの建物・道路・線路の帯に掛からないか
+  const segFree=(b,w,u0,u1,dOut)=>{
+    const n=Math.max(1,Math.ceil((u1-u0)/0.8));
+    for(let j=0;j<=n;j++) for(const d of [0.3,dOut*0.5,dOut]){           // 両端と 0.8m 以下の間隔・壁の近く/中ほど/先
+      const uu=u0+(u1-u0)*j/n, x=w.a[0]+w.tx*uu+w.nx*d, z=w.a[1]+w.tz*uu+w.nz*d, q=prjXY(x,z);
+      if(!cityFree(q.s,q.off,0.12,x,z,0)||plbHitOther(x,z,0.12,b.P)) return false; }
+    return true; };
   const detail=(C)=>{
     const P=[],N=[],I=[],Cc=[],AB=[],AW=[], c=new THREE.Color(), TX=new Map();   // TX=詰め合わせごとの写真の形
+    const AS=[];                                       // 付属物の記録(ATT_STRIDE ずつ。形は makeAtt が近くだけ作る)
     C.pend=false; C.need=[];                           // 写真の画像がまだ読めていない詰め合わせ(読めたら作り直す)
     let cur=[0,0,0,0], aw0=[0,0,0,0];                  // 今積んでいる建物の 外装の番号・壁の上端・種・基部(aBld)/壁の属性の既定(aWal)
-    const triT=(a,va,vb,vc,ta,tb,tc,n)=>{ let q=TX.get(a); if(!q){q={P:[],N:[],I:[],U:[],AB:[],AW:[]};TX.set(a,q);}
-      const o=q.P.length/3; for(const v of [va,vb,vc]){q.P.push(v[0],v[1],v[2]);q.N.push(n[0],n[1],n[2]);q.AB.push(cur[0],cur[1],cur[2],cur[3]);q.AW.push(aw0[0],aw0[1],aw0[2],aw0[3]);}
+    const triT=(a,va,vb,vc,ta,tb,tc,n,aw)=>{ let q=TX.get(a); if(!q){q={P:[],N:[],I:[],U:[],AB:[],AW:[]};TX.set(a,q);}
+      const o=q.P.length/3; [va,vb,vc].forEach((v,j)=>{q.P.push(v[0],v[1],v[2]);q.N.push(n[0],n[1],n[2]);q.AB.push(cur[0],cur[1],cur[2],cur[3]);const w=aw?aw[j]:aw0;q.AW.push(w[0],w[1],w[2],w[3]);});
       q.U.push(ta[0],ta[1],tb[0],tb[1],tc[0],tc[1]);
       const ux=vb[0]-va[0],uy=vb[1]-va[1],uz=vb[2]-va[2],vx=vc[0]-va[0],vy=vc[1]-va[1],vz=vc[2]-va[2];
       if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) q.I.push(o,o+1,o+2); else q.I.push(o,o+2,o+1);};
-    const quad=(a,b,cc,d,n,cl,aw)=>{const o=P.length/3; [a,b,cc,d].forEach((p,j)=>{P.push(p[0],p[1],p[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);const w=aw?aw[j]:aw0;AW.push(w[0],w[1],w[2],w[3]);});
+    const quadTo=(T,a,b,cc,d,n,cl,ab,aw)=>{const o=T.P.length/3; [a,b,cc,d].forEach((p,j)=>{T.P.push(p[0],p[1],p[2]);T.N.push(n[0],n[1],n[2]);T.C.push(cl.r,cl.g,cl.b);T.AB.push(ab[0],ab[1],ab[2],ab[3]);const w=aw?aw[j]:aw0;T.AW.push(w[0],w[1],w[2],w[3]);});
       // 法線の向きに表を向ける
       const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=cc[0]-a[0],vy=cc[1]-a[1],vz=cc[2]-a[2];
-      if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) I.push(o,o+1,o+2,o,o+2,o+3); else I.push(o,o+2,o+1,o,o+3,o+2);};
+      if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) T.I.push(o,o+1,o+2,o,o+2,o+3); else T.I.push(o,o+2,o+1,o,o+3,o+2);};
+    const M0={P:P,N:N,I:I,C:Cc,AB:AB,AW:AW};
+    const quad=(a,b,cc,d,n,cl,aw)=>quadTo(M0,a,b,cc,d,n,cl,cur,aw);
     const tri=(a,b2,cc,n,cl,aw)=>{const o=P.length/3; [a,b2,cc].forEach((q,j)=>{P.push(q[0],q[1],q[2]);N.push(n[0],n[1],n[2]);Cc.push(cl.r,cl.g,cl.b);AB.push(cur[0],cur[1],cur[2],cur[3]);const w=aw?aw[j]:aw0;AW.push(w[0],w[1],w[2],w[3]);});
       const ux=b2[0]-a[0],uy=b2[1]-a[1],uz=b2[2]-a[2],vx=cc[0]-a[0],vy=cc[1]-a[1],vz=cc[2]-a[2];
       if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) I.push(o,o+1,o+2); else I.push(o,o+2,o+1);};
-    for(const b of C.B){
-      setSrgb(c,b.hex); const roof=c.clone().multiplyScalar(0.86), Q=b.P, h=b.h;
+    // 付属物の箱:原点 o・沿う向き t・外向き n(水平)で u0〜u1・v0〜v1(外へ)・y0〜y1。下面は bot のときだけ。記録するだけ(形は makeAtt)
+    const obox=(o,tx,tz,nx,nz,u0,u1,v0,v1,y0,y1,cl,bot,kind,bi)=>{
+      AS.push(0,kind?ATT_KINDS.indexOf(kind):0,kind?bi:-1,o[0],o[1],tx,tz,nx,nz,u0,u1,v0,v1,y0,y1,cl.r,cl.g,cl.b,bot?1:0); };
+    const oquad=(a,b,cc,d,n,cl)=>{ AS.push(1,a[0],a[1],a[2],b[0],b[1],b[2],cc[0],cc[1],cc[2],d[0],d[1],d[2],n[0],n[1],n[2],cl.r,cl.g,cl.b); };
+    const AC_COL=setSrgb(new THREE.Color(),0xdcdcd6), PIPE_COL=setSrgb(new THREE.Color(),0x8f9497), RAIL_COL=setSrgb(new THREE.Color(),0x6a6e72);
+    C.B.forEach((b,bi)=>{
+      setSrgb(c,b.hex); const roof=b.roofFlat!==undefined?setSrgb(new THREE.Color(),b.roofFlat):c.clone().multiplyScalar(0.86), Q=b.P, h=b.h;   // roofFlat=陸屋根の色(計画のビル)
       const gray=b.roofHex!==null?setSrgb(new THREE.Color(),b.roofHex):roof, y0=b.base;   // y0=基部(地形の上)
       const code=b.wt+4*b.fs;
       cur=[code,y0+b.eave,b.seed,y0];
+      // 壁(LOD2 の面・写真の面):面の法線から沿う向きを決め、u は面の点の最小からの距離
+      const faceAW=(V,n)=>{ const l=Math.hypot(n[0],n[2])||1, tx=-n[2]/l, tz=n[0]/l; let lo=1e9,hi=-1e9; const us=V.map(v=>{const u=v[0]*tx+v[2]*tz; lo=Math.min(lo,u); hi=Math.max(hi,u); return u;});
+        return us.map(u=>[u-lo,hi-lo,b.fh,128*Math.min(b.st||0,60)]); };
       if(b.l2){
         /* LOD2:屋根面・壁面をそのまま。屋根は上向き、壁は建物の重心から外向きに表を向ける。傾いた屋根面は灰色(陸屋根はそのまま) */
         for(const S of b.l2){
@@ -4996,16 +5062,17 @@ if(PLB){
             if(n[0]*mx+n[2]*mz<0) n=[-n[0],-n[1],-n[2]];
           }
           if(S.t!==1){ let my=-1e9; for(const v of S.V) my=Math.max(my,v[1]); cur=[code,y0+Math.min(b.eave,my),b.seed,y0]; }   // 壁ごとの上端(低い棟の壁)
+          const fa=Math.abs(n[1])<0.5?faceAW(V,n):null;
           if(S.uv&&PTX_READY.ok[S.ta]){                  // 写真のある面
             const U=S.uv, uvOf=i=>[U[2*i],U[2*i+1]];
-            for(const t of r.T) triT(S.ta,V[t[0]],V[t[1]],V[t[2]],uvOf(t[0]),uvOf(t[1]),uvOf(t[2]),n);
+            for(const t of r.T) triT(S.ta,V[t[0]],V[t[1]],V[t[2]],uvOf(t[0]),uvOf(t[1]),uvOf(t[2]),n,fa?[fa[t[0]],fa[t[1]],fa[t[2]]]:null);
             continue;
           }
           if(S.uv&&!C.need.includes(S.ta)){ C.pend=true; C.need.push(S.ta); }   // 画像が読めたら写真の形で作り直す
           // 色は面の向きで:上向きで傾いた面は(データで壁とされていても)三角屋根の灰色、平らな上向きは陸屋根
-          for(const t of r.T) tri(V[t[0]],V[t[1]],V[t[2]],n,(S.t===1||n[1]>0.3)?(n[1]<0.97?gray:roof):c);
+          for(const t of r.T) tri(V[t[0]],V[t[1]],V[t[2]],n,(S.t===1||n[1]>0.3)?(n[1]<0.97?gray:roof):c,fa?[fa[t[0]],fa[t[1]],fa[t[2]]]:null);
         }
-        continue;
+        return;
       }
       const eave=b.gable?b.eave:h;                    // 壁の上端(切妻は軒まで)
       const WL=[];
@@ -5014,42 +5081,111 @@ if(PLB){
         let nx=d[1]-a[1], nz=-(d[0]-a[0]); const l=Math.hypot(nx,nz)||1; nx/=l; nz/=l; if(nx*mx+nz*mz<0){nx=-nx;nz=-nz;}
         WL.push({a:a,d:d,nx:nx,nz:nz,L:L,tx:(d[0]-a[0])/(L||1),tz:(d[1]-a[1])/(L||1),fl:0});
       }
-      wallFlags(b,WL); b.walls=WL;                    // 検証が壁ごとの印を読む
+      (b.wfl||wallFlags)(b,WL); b.walls=WL;            // 検証が壁ごとの印を読む(計画のビルは部分ごとの印=KARA)
       for(const w of WL){
         const fl=w.fl+128*Math.min(b.st||0,60);         // 印の上に階数(128 倍。窓は階数の段まで)
         const aw=[[0,w.L,b.fh,fl],[w.L,w.L,b.fh,fl],[w.L,w.L,b.fh,fl],[0,w.L,b.fh,fl]];
         quad([w.a[0],y0,w.a[1]],[w.d[0],y0,w.d[1]],[w.d[0],y0+eave,w.d[1]],[w.a[0],y0+eave,w.a[1]],[w.nx,0,w.nz],c,aw);
+      }
+      // 付属物:バルコニー(共同住宅は2階から上の階ごと、戸建ては2階)・室外機・雨どい
+      const g0=FS_G0[b.fs], nf=floorsOf(b), m=0.45;
+      for(const w of WL){
+        const o=w.a, T=[w.tx,w.tz,w.nx,w.nz];
+        if(w.fl&8){
+          const nb=Math.max(1,Math.floor((w.L-2*m)/BLD_WIN[b.wt][0]+0.35)), bw=(w.L-2*m)/nb;
+          const pcol=bh(b.seed,41)<0.5?setSrgb(new THREE.Color(),0xb9c3c8):c.clone().lerp(new THREE.Color(1,1,1),0.25), scol=c.clone().multiplyScalar(0.9);
+          for(let f=1;f<nf;f++){
+            const yS=y0+g0+f*b.fh; if(yS+1.1>y0+eave-0.2) break;
+            obox(o,...T,0.2,w.L-0.2,0,1.1,yS-0.16,yS,scol,true,'バルコニー',bi);
+            obox(o,...T,0.2,w.L-0.2,1.03,1.1,yS,yS+1.1,pcol,false,'手すり',bi);
+            obox(o,...T,0.2,0.26,0,1.03,yS,yS+1.1,pcol,false); obox(o,...T,w.L-0.26,w.L-0.2,0,1.03,yS,yS+1.1,pcol,false);
+            for(let k=2;k<nb;k+=2){ const uu=m+k*bw; obox(o,...T,uu-0.02,uu+0.02,0,1.0,yS,yS+1.9,setSrgb(new THREE.Color(),0xd6d6d0),false); }
+            for(let k=0;k<nb;k+=2){ const uu=m+(k+0.5)*bw; if(uu+1.0>w.L-0.3) continue; obox(o,...T,uu+0.2,uu+1.0,0.12,0.42,yS,yS+0.62,AC_COL,false,'室外機',bi); }
+          }
+        }
+        if(w.fl&16){
+          const bwh=Math.min(w.L-1.2,3.6), u0=w.L/2-bwh/2, u1=w.L/2+bwh/2, yS=y0+g0+b.fh, solid=b.seed%2===0;
+          obox(o,...T,u0,u1,0,0.9,yS-0.14,yS,c.clone().multiplyScalar(0.85),true,'バルコニー',bi);
+          if(solid) obox(o,...T,u0,u1,0.86,0.9,yS,yS+1.0,setSrgb(new THREE.Color(),0xcfd2d0),false,'手すり',bi);
+          else{ obox(o,...T,u0,u1,0.84,0.9,yS+0.94,yS+1.0,RAIL_COL,false,'手すり',bi); obox(o,...T,u0,u1,0.86,0.9,yS+0.08,yS+0.14,RAIL_COL,false);
+            for(let uu=u0;uu<=u1+1e-6;uu+=0.9){ const q=Math.min(uu,u1-0.04); obox(o,...T,q,q+0.04,0.85,0.9,yS,yS+0.94,RAIL_COL,false); } }
+          for(const uu of [u0,u1-0.04]) obox(o,...T,uu,uu+0.04,0,0.9,yS+0.94,yS+1.0,RAIL_COL,false);
+        }
+      }
+      if(b.wt===0){                                     // 戸建ての室外機:玄関と道路の無い壁の足元
+        const w=WL.filter(q=>!(q.fl&3)&&!q.road&&q.L>=2.2).sort((p,q)=>q.L-p.L)[0];
+        if(w){ const uu=w.L*(0.25+0.5*bh(b.seed,42)); if(segFree(b,w,uu-0.45,uu+0.45,0.45)) obox(w.a,w.tx,w.tz,w.nx,w.nz,uu-0.4,uu+0.4,0.08,0.38,y0,y0+0.62,AC_COL,false,'室外機',bi); }
       }
       if(b.gable){
         /* 切妻屋根:外接矩形(長い辺の向きに棟)の上に、軒の出 0.35m。妻面(三角)は壁の色。軒の高さの平らな蓋は作らない
            (足跡は外接矩形の内なので屋根が覆う) */
         const lw=b.w>=b.d, ux=lw?b.ux:-b.uz, uz=lw?b.uz:b.ux, L=(lw?b.w:b.d)/2, E=(lw?b.d:b.w)/2, ov=0.35;
         const vx=-uz, vz=ux, W=(u,v,y)=>[b.ox+u*ux+v*vx,y0+y,b.oz+u*uz+v*vz], top=eave+b.rh;
+        const k=(E+ov)/E, te=top-b.rh*k;                    // 軒の出のぶん屋根面を下げる(勾配はそのまま)。te=軒先の高さ
         for(const sg of[-1,1]){
           const nl=Math.hypot(b.rh,E+ov), n=[sg*vx*b.rh/nl,(E+ov)/nl,sg*vz*b.rh/nl];
-          const k=(E+ov)/E;                                   // 軒の出のぶん屋根面を下げる(勾配はそのまま)
-          quad(W(-L-ov,sg*(E+ov),top-b.rh*k),W(L+ov,sg*(E+ov),top-b.rh*k),W(L+ov,0,top),W(-L-ov,0,top),n,gray);
-          quad(W(L+ov,sg*(E+ov),top-b.rh*k),W(-L-ov,sg*(E+ov),top-b.rh*k),W(-L-ov,0,top),W(L+ov,0,top),[-n[0],-n[1],-n[2]],gray.clone().multiplyScalar(0.6));   // 軒裏
+          quad(W(-L-ov,sg*(E+ov),te),W(L+ov,sg*(E+ov),te),W(L+ov,0,top),W(-L-ov,0,top),n,gray);
+          quad(W(L+ov,sg*(E+ov),te),W(-L-ov,sg*(E+ov),te),W(-L-ov,0,top),W(L+ov,0,top),[-n[0],-n[1],-n[2]],gray.clone().multiplyScalar(0.6));   // 軒裏
           const sf=128*Math.min(b.st||0,60), aw=[[0,2*E,b.fh,sf],[2*E,2*E,b.fh,sf],[E,2*E,b.fh,sf]];
           tri(W(sg*L,-E,eave),W(sg*L,E,eave),W(sg*L,0,top),[sg*ux,0,sg*uz],c,aw);                     // 妻面
+          // 付属物:軒樋(軒先の下)・ケラバ(妻側の屋根の縁)
+          const OB=[b.ox+sg*(E+ov)*vx,b.oz+sg*(E+ov)*vz];
+          obox(OB,ux,uz,sg*vx,sg*vz,-L-ov,L+ov,-0.02,0.1,y0+te-0.16,y0+te-0.04,PIPE_COL,true);
+          for(const su of[-1,1]){ const p0=W(su*(L+ov+0.02),0,top+0.04), p1=W(su*(L+ov+0.02),sg*(E+ov),te+0.04);
+            oquad(p0,p1,[p1[0],p1[1]-0.2,p1[2]],[p0[0],p0[1]-0.2,p0[2]],[su*ux,0,su*uz],gray.clone().multiplyScalar(0.8)); }
         }
-        continue;
+        // 雨どい(縦樋):軒側の壁(棟に平行)の両端。足跡が外接矩形をほぼ満たす家だけ(L字の家で宙に浮かない)
+        let ar=0; for(let i=0;i<Q.length;i++){const a=Q[i],d=Q[(i+1)%Q.length]; ar+=a[0]*d[1]-d[0]*a[1];}
+        if(Math.abs(ar)/2>=0.9*b.w*b.d) for(const w of WL) if(Math.abs(w.tx*ux+w.tz*uz)>0.9&&w.L>=3)
+          for(const uu of [0.06,w.L-0.14]) if(segFree(b,w,uu,uu+0.08,0.12)) obox(w.a,w.tx,w.tz,w.nx,w.nz,uu,uu+0.08,0.02,0.1,y0,y0+te-0.1,PIPE_COL,false,'雨どい',bi);
+        return;
       }
-      const yr=y0+h-b.pp, o=P.length/3;                // 屋根の面はパラペットの高さ pp だけ下げる
+      // 陸屋根:屋根の面はパラペットの高さ pp だけ下げ、壁の上端との間に内側の面を立てる(外装は描かない=aBld の1つ目が負)
+      const yr=y0+h-b.pp, o=P.length/3;
       for(const p of Q){P.push(p[0],yr,p[1]);N.push(0,1,0);Cc.push(roof.r,roof.g,roof.b);AB.push(cur[0],cur[1],cur[2],cur[3]);AW.push(0,0,0,0);}
       for(const t of earTri(Q)){
         const A0=Q[t[0]],A1=Q[t[1]],A2=Q[t[2]], up=(A1[1]-A0[1])*(A2[0]-A0[0])-(A1[0]-A0[0])*(A2[1]-A0[1]);   // 上向きなら正
         if(up>=0) I.push(o+t[0],o+t[1],o+t[2]); else I.push(o+t[0],o+t[2],o+t[1]);
       }
-      if(b.pp>0){ const keep=cur; cur=[-1,y0+h,b.seed,y0];   // パラペットの内側の面(外装は描かない=aBld の1つ目が負)
+      if(b.pp>0){ const keep=cur; cur=[-1,y0+h,b.seed,y0];
         for(const w of WL) quad([w.a[0],yr,w.a[1]],[w.d[0],yr,w.d[1]],[w.d[0],y0+h,w.d[1]],[w.a[0],y0+h,w.a[1]],[-w.nx,0,-w.nz],c.clone().multiplyScalar(0.92));
         cur=keep; }
-    }
+      // 屋上の室外機(共同住宅・業務の3階以上):重心のまわり、足跡の 1m 内に収まる所
+      if((b.wt===1||b.wt===2)&&nf>=3){
+        for(let j=0;j<3;j++){ const du=(j-1)*1.6, ux=b.ux, uz=b.uz, x=b.cx+ux*du, z=b.cz+uz*du;
+          const cs=[[-0.5,-0.4],[0.5,-0.4],[0.5,0.4],[-0.5,0.4]].map(([p,q])=>[x+ux*p-uz*q,z+uz*p+ux*q]);
+          if(cs.every(p=>polyDist(Q,p[0],p[1])<-1.0)) obox([x,z],ux,uz,-uz,ux,-0.5,0.5,-0.4,0.4,yr,yr+0.7,AC_COL,false,'屋上の室外機',bi); }
+      }
+      /* 屋上の物(2026-11 利用者指示「更なるクオリティアップ」。推定):航空写真が屋根に真上から貼られる(実際の太陽光パネルは写真に写る)ので、
+         横から見て効く物だけを立体で足す。置き場は足跡の 1m 内に収まり、屋上の室外機の列(重心の前後 2.1m・左右 0.4m)と重ならない所。
+         ・高置水槽:4〜10階の共同住宅・業務の4割。脚4本(高さ 2.2m)の上に FRP のパネル水槽(2.4×1.8×1.8m・淡い色)
+         ・屋上の看板:3階以上の商業(店舗併用を含む)で線路から 250m 以内の3割。線路の方を向く板(幅 5m・高さ 2.4m・脚 1.0m・厚さ 0.3m)。
+           面は無地の色(文字は描かない) */
+      { const ux=b.ux, uz=b.uz, vx=-uz, vz=ux, inQ=(x,z,u0,u1,v0,v1,ax,az,bx,bz)=>[[u0,v0],[u1,v0],[u1,v1],[u0,v1]].every(([p,q])=>polyDist(Q,x+ax*p+bx*q,z+az*p+bz*q)<-1.0);
+        const acRow=(x,z,r)=>{ const du=(x-b.cx)*ux+(z-b.cz)*uz, dv=(x-b.cx)*vx+(z-b.cz)*vz; return Math.abs(du)<2.1+r&&Math.abs(dv)<0.4+r; };
+        if((b.wt===1||b.wt===2)&&nf>=4&&nf<=10&&bh(b.seed,47)<0.4){
+          for(const dv of [2.6,-2.6,4.0,-4.0]){ const x=b.cx+vx*dv, z=b.cz+vz*dv;
+            if(!inQ(x,z,-1.2,1.2,-0.9,0.9,ux,uz,vx,vz)||acRow(x,z,1.5)) continue;
+            const TC=setSrgb(new THREE.Color(),bh(b.seed,49)<0.5?0xd9dfe1:0xd8d0bd), LC=setSrgb(new THREE.Color(),0x7d8287);
+            for(const [p,q] of [[-1.05,-0.75],[1.05,-0.75],[1.05,0.75],[-1.05,0.75]]) obox([x+ux*p+vx*q,z+uz*p+vz*q],ux,uz,vx,vz,-0.06,0.06,-0.06,0.06,yr,yr+2.2,LC,false,'高置水槽',bi);
+            obox([x,z],ux,uz,vx,vz,-1.2,1.2,-0.9,0.9,yr+2.2,yr+4.0,TC,true,'高置水槽',bi);
+            break; }
+        }
+        if((b.use===2||b.use===5)&&nf>=3&&bh(b.seed,48)<0.3){ const q0=prjXY(b.cx,b.cz);
+          if(Math.abs(q0.off)<250){ const f=frame(q0.s,0); let nx=f.x-b.cx, nz=f.z-b.cz; const nl=Math.hypot(nx,nz)||1; nx/=nl; nz/=nl;   // 線路の方
+            const tx=-nz, tz=nx, BC=[0xf2f1ec,0xd8443c,0x2f6db5,0xf0c419,0x2e9b57], FC=setSrgb(new THREE.Color(),BC[Math.floor(bh(b.seed,50)*BC.length)]), KC=setSrgb(new THREE.Color(),0x55595d);
+            for(const dd of [0,2,-2,4,-4]){ const x=b.cx+nx*dd, z=b.cz+nz*dd;
+              if(!inQ(x,z,-2.5,2.5,-0.15,0.15,tx,tz,nx,nz)||acRow(x,z,0.5)) continue;
+              for(const p of [-1.8,1.8]) obox([x+tx*p,z+tz*p],tx,tz,nx,nz,-0.06,0.06,-0.06,0.06,yr,yr+1.0,KC,false,'屋上の看板',bi);
+              obox([x,z],tx,tz,nx,nz,-2.5,2.5,-0.15,0.15,yr+1.0,yr+3.4,FC,true,'屋上の看板',bi);
+              break; } } }
+      }
+    });
     const g=facesGeo(P,N,I,Cc); g.boundingSphere=sphere(C.bx);
     g.setAttribute('aBld',new THREE.Float32BufferAttribute(AB,4));     // 外装の番号(窓の種類+4×外装)・壁の上端・種・基部
     g.setAttribute('aWal',new THREE.Float32BufferAttribute(AW,4));     // 壁に沿う位置・壁の長さ・階高・1階の印
     const m=new THREE.Mesh(g,MAT_B); m.visible=false; scene.add(m);
-    m.castShadow=true; m.receiveShadow=true; m.layers.enable(FAR_LAYER);   // 遠くの影も。後から作るので applyShadows() の一括設定に載らない
+    m.castShadow=true; m.receiveShadow=true; m.layers.enable(FAR_LAYER);   // 後から作るので applyShadows() の一括設定に載らない(遠くの影も)
     C.mt=[];                                          // 写真の形(詰め合わせごとに1回の描画)。表示は m と一緒に cityLod が切り替える
     for(const [a,q] of TX){
       const gt=facesGeo(q.P,q.N,q.I,null); gt.boundingSphere=sphere(C.bx);
@@ -5059,12 +5195,40 @@ if(PLB){
       const mt=new THREE.Mesh(gt,ptxMat(a)); mt.visible=false; mt.castShadow=true; mt.receiveShadow=true; mt.layers.enable(FAR_LAYER); mt.userData.ptx=a;
       scene.add(mt); C.mt.push(mt);
     }
+    attDrop(C);                                       // 作り直すときは付属物の形も記録から作り直す
+    C.attS=AS.length?new Float32Array(AS):null;       // 付属物の記録(升ごとに近くだけ makeAtt が形にする。表示は cityLod)
+    C.attC=C.attS?attCells(C.attS):null;
     return m;
+  };
+  /* 付属物の形:升 a の記録(C.attS の a.I の位置)から近づいたときだけ作る。外装は描かない(aBld の1つ目が負。aWal は読まれないので持たない) */
+  const makeAtt=(C,a)=>{
+    const S=C.attS; if(!S||!a) return null;
+    const P=[],N=[],I=[],Cc=[];
+    const q=(a,b,cc,d,n,r,g,bl)=>{ const o=P.length/3; for(const p of [a,b,cc,d]){P.push(p[0],p[1],p[2]);N.push(n[0],n[1],n[2]);Cc.push(r,g,bl);}
+      const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=cc[0]-a[0],vy=cc[1]-a[1],vz=cc[2]-a[2];   // 法線の向きに表を向ける
+      if((uy*vz-uz*vy)*n[0]+(uz*vx-ux*vz)*n[1]+(ux*vy-uy*vx)*n[2]>=0) I.push(o,o+1,o+2,o,o+2,o+3); else I.push(o,o+2,o+1,o,o+3,o+2); };
+    for(const i of a.I){
+      if(S[i]===1){ q([S[i+1],S[i+2],S[i+3]],[S[i+4],S[i+5],S[i+6]],[S[i+7],S[i+8],S[i+9]],[S[i+10],S[i+11],S[i+12]],[S[i+13],S[i+14],S[i+15]],S[i+16],S[i+17],S[i+18]); continue; }
+      const o0=S[i+3],o1=S[i+4],tx=S[i+5],tz=S[i+6],nx=S[i+7],nz=S[i+8],u0=S[i+9],u1=S[i+10],v0=S[i+11],v1=S[i+12],y0=S[i+13],y1=S[i+14],r=S[i+15],g=S[i+16],bl=S[i+17];
+      const W=(u,v,y)=>[o0+tx*u+nx*v,y,o1+tz*u+nz*v];
+      q(W(u0,v1,y0),W(u1,v1,y0),W(u1,v1,y1),W(u0,v1,y1),[nx,0,nz],r,g,bl);
+      // 壁の側を向く面は描かない(壁と付属物の間に入らないと見えない。屋上の物=種類5 以上は向きが壁と関係ないので描く)
+      if(S[i+1]>=5) q(W(u0,v0,y0),W(u1,v0,y0),W(u1,v0,y1),W(u0,v0,y1),[-nx,0,-nz],r,g,bl);
+      q(W(u1,v0,y0),W(u1,v1,y0),W(u1,v1,y1),W(u1,v0,y1),[tx,0,tz],r,g,bl);
+      q(W(u0,v0,y0),W(u0,v1,y0),W(u0,v1,y1),W(u0,v0,y1),[-tx,0,-tz],r,g,bl);
+      q(W(u0,v0,y1),W(u1,v0,y1),W(u1,v1,y1),W(u0,v1,y1),[0,1,0],r,g,bl);
+      if(S[i+18]) q(W(u0,v0,y0),W(u1,v0,y0),W(u1,v1,y0),W(u0,v1,y0),[0,-1,0],r*0.7,g*0.7,bl*0.7);
+    }
+    const ga=facesGeo(P,N,I,Cc); ga.boundingSphere=new THREE.Sphere(new THREE.Vector3(a.x,a.y,a.z),a.r);
+    const AB=new Float32Array(P.length/3*4); for(let j=0;j<AB.length;j+=4){AB[j]=-1;AB[j+1]=1e4;}
+    ga.setAttribute('aBld',new THREE.Float32BufferAttribute(AB,4));
+    const ma=new THREE.Mesh(ga,MAT_B); ma.visible=false; ma.castShadow=true; ma.receiveShadow=true; ma.userData.attach=true;
+    scene.add(ma); return ma;
   };
   for(const c of CH.values()){
     const bx=c.bx;
     CITY_LODS.push({x:(bx[0]+bx[1])/2,y:(bx[4]+bx[5])/2,z:(bx[2]+bx[3])/2,r:Math.hypot(bx[1]-bx[0],bx[4]-bx[5],bx[3]-bx[2])/2,
-      near:400,mid:1400,B:c.B,bx:bx,make:detail,m:[null,inst(c.B,bx),inst(c.B.filter(b=>b.big),bx)]});
+      near:400,mid:1400,B:c.B,bx:bx,make:detail,makeA:makeAtt,attS:null,attC:null,attN:0,m:[null,inst(c.B,bx),inst(c.B.filter(b=>b.big),bx)]});
   }
   CITY.plateau={source:PLB.source,count:PLB.count,used:nIn,tex:N_TX?{buildings:N_TX.nb,surfaces:N_TX.ns,atlases:PTX.atlases.length}:null};
   // 出典の表示(CC BY 4.0)
