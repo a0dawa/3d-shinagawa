@@ -5235,7 +5235,7 @@ if(PLB){
   // 出典の表示(CC BY 4.0)
   try{
     const d=document.createElement('div');
-    d.textContent=(PLL?'建物・道路・水面':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工'+(PLL&&globalThis.GSI_TREES?'・沿線の木の位置:地理院タイル(全国最新写真(シームレス))から推定':'');   // CREDITS.txt と同じ表記
+    d.textContent=(PLL?'建物・道路・水面':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工'+(PLL&&globalThis.GSI_TREES?'・沿線の木の位置:地理院タイル(全国最新写真(シームレス))から推定':'')+(globalThis.PLATEAU_DEM&&/東京都/.test(PLATEAU_DEM.source)?'・地形(陸):東京都デジタルツイン実現プロジェクト 区部点群データ(CC BY 4.0)を加工':'');   // CREDITS.txt と同じ表記
     d.style.cssText='position:fixed;right:6px;bottom:4px;font:11px sans-serif;color:#334;background:rgba(255,255,255,.7);padding:1px 6px;border-radius:4px;z-index:5;pointer-events:none';
     document.body.appendChild(d);
   }catch(e){}

@@ -28,7 +28,12 @@ Copyright (c) 2026 a0とnonkyuruの駅攻略
          (tools/gsi_city.py)。
    画面の表示:右下に「建物・道路・水面・地形:国土地理院 ベクトルタイル・標高タイル(建物の高さは推定)(CC BY 4.0)を加工」と出す。
 
-2. 地形 …… plateau_dem.js
+2. 地形 …… plateau_dem.js(2026-11-20 から 陸=東京都のグリッドDEM(0.5m)・水面=国土地理院。下の 2b)
+2b. 東京都デジタルツイン実現プロジェクト 区部点群データ「グリッドデータDEM(0.5m)」(G空間情報センター tokyopc-23ku-2024。CC BY 4.0)
+   https://gic-tokyo.s3.ap-northeast-1.amazonaws.com/2024/dig/grd50/<図郭>.zip(84図郭。GeoTIFF は同梱しない)
+   加工の内容:線路の帯の 10m 格子(各点は 10m 四方の平均)にした(tools/terrain_tokyopc.py)。水面は国土地理院の値。
+   画面の表示:右下に「地形(陸):東京都デジタルツイン実現プロジェクト 区部点群データ(CC BY 4.0)を加工」と出す。
+2a. 国土地理院 DEM(以前の地形。水面の高さと図郭の外に今も使う)
    出典:国土地理院 地理院タイル(標高タイル DEM5A・DEM5B・DEM10B の PNG、z15)
          https://cyberjapandata.gsi.go.jp/xyz/dem5a_png/{z}/{x}/{y}.png ほか
    加工の内容:線路の帯の 10m 格子の標高にした(tools/dem.py・tools/gsi_city.py)。ビューアは標高(TP)から 3.0m を引いた高さで描き、
