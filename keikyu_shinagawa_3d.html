@@ -215,6 +215,7 @@ window.KEIO_LP=function(p){ var b=document.getElementById('loadPct'), i=document
 <!-- plateau_tex.js(建物の写真。京王版は PLATEAU の LOD2)は品川版には無い=建物は色で描く -->
 <script src="plateau_dem.js"></script><!-- 沿線の地形(同上。国土地理院 標高タイル) -->
 <script src="gsi_rail.js"></script><!-- 京急以外の鉄道(JR 等)の線路・ホームの上屋・線路上空の建物(国土地理院) -->
+<script src="gsi_trees.js"></script><!-- 沿線の木の位置(地理院タイルの航空写真から推定。tools/ortho_trees.py)。無ければ公園の格子と庭木をばらまく -->
 <script data-loading>KEIO_LP(13)</script>
 <!-- 本体。読み込み係(この下)が「//@@PART 進み具合」の行で分けて、1つずつ別のスクリプトとして実行する(間に画面を描き直して進み具合を出す)。
      分けても上から順に実行するのは同じで、トップレベルの const・let・function は後の片から見える(関数の巻き上げだけは片の中) -->
@@ -5234,7 +5235,7 @@ if(PLB){
   // 出典の表示(CC BY 4.0)
   try{
     const d=document.createElement('div');
-    d.textContent=(PLL?'建物・道路・水面':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工';   // CREDITS.txt と同じ表記
+    d.textContent=(PLL?'建物・道路・水面':'建物')+(N_TX?'・建物の写真':'')+(TER.on?'・地形':'')+':'+PLB.source+'(CC BY 4.0)を加工'+(PLL&&globalThis.GSI_TREES?'・沿線の木の位置:地理院タイル(全国最新写真(シームレス))から推定':'');   // CREDITS.txt と同じ表記
     d.style.cssText='position:fixed;right:6px;bottom:4px;font:11px sans-serif;color:#334;background:rgba(255,255,255,.7);padding:1px 6px;border-radius:4px;z-index:5;pointer-events:none';
     document.body.appendChild(d);
   }catch(e){}
@@ -5313,8 +5314,16 @@ if(PLB){
   // 本数は利用者指示で約2倍。街路樹の間隔を実際に近く詰め、残りは庭木として小さめに散らす
   /* 実データの土地利用(4章 LANDS_PL)があれば、公園・緑地(11m 格子)と山林(6.5m 格子)の中にも植える。
      格子を少しずらし、縁から樹冠の半径+0.5m 以上内側だけ。上限 2,500本。数が先に決まらないとインスタンスの枠を作れない */
+  /* 航空写真から推定した木(gsi_trees.js=tools/ortho_trees.py。京王の trees-gsi を 2026-11-20 に取り込み):国土地理院の地理院タイル
+     (全国最新写真(シームレス) z18)の緑の塊の中心と半径。あれば公園・緑地・山林の格子の木と、ばらまいた庭木の代わりに植える。
+     推定:色と模様で見つけるので、写真で暗い(青みの)樹冠は取りこぼし、芝・緑の屋根を木と取り違えることがある。半径は塊の内接円の1.25倍
+     (影の側が欠けるぶん)・5m まで。ほかの木・建物・道路・線路に掛かるなら 0.8倍ずつ 1m まで縮めて植える */
+  const GT=(()=>{ const g=typeof globalThis!=='undefined'&&globalThis.GSI_TREES; if(!g||!g.d||!PLL) return null;
+    const d=g.d.split(',').map(Number), o=toXY(g.o[0],g.o[1]), out=[]; let x=0,z=0;
+    for(let k=0;k+2<d.length;k+=3){ x+=d[k]; z+=d[k+1]; out.push([o.x+x/10,o.z+z/10,d[k+2]/10]); } return out; })();
+  CITY.gsiTrees=GT;
   const PARK=[];
-  for(const R of LANDS_PL){
+  if(!GT) for(const R of LANDS_PL){
     if(R.k!==0&&R.k!==2) continue;
     const g=R.k===2?6.5:11, sc0=R.k===2?0.95:0.85;
     for(let x=Math.ceil(R.bb[0]/g)*g;x<R.bb[1];x+=g)for(let z=Math.ceil(R.bb[2]/g)*g;z<R.bb[3];z+=g){
@@ -5323,7 +5332,7 @@ if(PLB){
     }
   }
   while(PARK.length>2500) PARK.splice(Math.floor(Math.random()*PARK.length),1);
-  const N=2300+PARK.length;
+  const N=2300+PARK.length+(GT?GT.length:0);
   /* 木は幹と樹冠を1つの形(頂点カラー:幹=茶・樹冠=白)にし、s の 480m ごとのまとまりのインスタンスにする。
      まとまりごとに外接球を持たせて画面の外・影の範囲の外を間引く(1つにまとめると数千本を毎回描く)。
      色(季節)はインスタンスの色で、幹にも掛かる(暗い茶になる)。登録簿の木 i は TREE_CH[ci].m の j 番目 */
@@ -5331,9 +5340,9 @@ if(PLB){
   let i=0;
   // 樹冠の半径は 2.3*sc。占有半径はこれに合わせる(建物とも重ならない)
   // kind は樹種の別(既定='街路樹' / '桜')。季節の着色でここを見る
-  const put=(s,off,sc,c,kind,roadIn)=>{       // roadIn:道路区域へ入ってよい深さ(歩道の並木)
+  const put=(s,off,sc,c,kind,roadIn,at)=>{    // roadIn:道路区域へ入ってよい深さ(歩道の並木)・at=[x,z](写真の木はその位置のまま)
     if(i>=N)return false;
-    const p=frame(s,off), rad=2.3*sc;
+    const p=at?{x:at[0],z:at[1]}:frame(s,off), rad=2.3*sc;
     if(!cityFree(s,off,rad,p.x,p.z,roadIn===undefined?0:rad+roadIn))return false;
     if(GSR&&jrNear(p.x,p.z,rad+2.0))return false;    // JR 等の線路の上には植えない(品川版)
     if(!occFree(p.x,p.z,rad))return false;
@@ -5392,8 +5401,11 @@ if(PLB){
       }
     }
   }
+  if(GT){ const GC=[0x7fa268,0x6f9160,0x5f8a4e];
+    for(const t of GT){ const q=prjXY(t[0],t[1]); if(q.s<DOM.x0||q.s>DOM.x1||Math.abs(q.off)>DOM.z) continue;
+      for(let r=Math.min(5.0,t[2]*1.25);r>=1.0;r*=0.8) if(put(q.s,q.off,r/2.3,GC[Math.floor(Math.abs(t[0]*7.3+t[1]*3.1))%3],'写真',undefined,t)) break; } }
   let guard=0;
-  while(i<N&&guard++<N*40){
+  while(!GT&&i<N&&guard++<N*40){
     const x=DOM.x0+Math.random()*(DOM.x1-DOM.x0),z=(Math.random()*2-1)*DOM.z;
     put(x,z,.55+Math.random()*.5,Math.random()<.5?0x7fa268:0x6f9160);   // 庭木は小ぶり
   }

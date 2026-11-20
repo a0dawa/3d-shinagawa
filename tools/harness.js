@@ -13,7 +13,7 @@ const code = m[1];
 const PARTS = code.split(/^\/\/@@PART\s+\d+.*$/m);
 // 別ファイルの沿線の建物データ(あれば先に読む)
 {
-  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js']) {
+  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js', 'gsi_trees.js']) {
     const pl = require('path').join(require('path').dirname(path), nm);
     if (html.includes('<script src="' + nm + '">') && fs.existsSync(pl)) (0, eval)(fs.readFileSync(pl, 'utf8'));
   }

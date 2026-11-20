@@ -11,11 +11,11 @@
     },
     "road-marks": {
       "status": "todo",
-      "note": "未着手(判断が要る)。京王の路面標示・信号は PLATEAU の道路の『交差部(sec 4)』が前提だが、品川の道路は gsi_city.py が中心線から作った帯(sec 1・2 のみ)で交差部が無い。gsi_city.py に交差部の抽出を足すか、交差部を使わない簡易版にするかを決めてから"
+      "note": "未着手(判断が要る)。京王のものは PLATEAU の道路の交差部(sec 4)・歩道 SIDEWALKS の runs・信号の灯(SIGNAL)に依存。品川の道路は国土地理院の中心線の帯で交差部が無いため、gsi_city.py に交差点(端点が3本以上集まる所)の面 sec 4 を作る設計から要る"
     },
     "trees-gsi": {
-      "status": "todo",
-      "note": "未着手。tools/ortho_trees.py(地理院タイル z18 の緑の塊)と 8章の植え方・検証(verify_city 4j・4c3 の移植)が要る"
+      "status": "adopted",
+      "note": "2026-11-20 取り込み。gsi_trees.js は tools/ortho_trees.py(京王から複製)で品川の帯から作成。検証は ⑦ 4j・4c3(verify_city)相当が未移植"
     },
     "plan-areas": {
       "status": "todo",

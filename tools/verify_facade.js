@@ -48,7 +48,7 @@ const PAGE = path.join(OUT, 'page.html');
   src = src.replace(/<script src="https?:\/\/[^"]*three[^"]*"><\/script>/, '<script src="three.min.js"></script>');
   fs.writeFileSync(PAGE, src);
   fs.copyFileSync(THREEJS, path.join(OUT, 'three.min.js'));
-  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js']) {
+  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js', 'gsi_trees.js']) {
     const pl = path.join(path.dirname(HTML), nm);
     if (fs.existsSync(pl)) fs.copyFileSync(pl, path.join(OUT, nm));
   }

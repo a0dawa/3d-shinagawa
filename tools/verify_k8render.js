@@ -41,7 +41,7 @@ const page_html = path.join(OUT, 'page.html');
   fs.writeFileSync(page_html, src);
   fs.copyFileSync(THREEJS, path.join(OUT, 'three.min.js'));
   // 沿線の建物データ(別ファイル)。HTML の隣にあれば写す(無いと読み込みのエラーが出る)
-  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js']) {   // 沿線の建物・道路(PLATEAU。あれば)
+  for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js', 'gsi_trees.js']) {   // 沿線の建物・道路(PLATEAU。あれば)
     const pl = path.join(path.dirname(HTML), nm);
     if (fs.existsSync(pl)) fs.copyFileSync(pl, path.join(OUT, nm));
   }
