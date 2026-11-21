@@ -28,6 +28,10 @@
     "xrail-cars-photo": {
       "status": "n/a",
       "note": "品川版に交差鉄道の車両は無い(JR は線路のみ)"
+    },
+    "verify-seed": {
+      "status": "adopted",
+      "note": "2026-11-21 tools/stub_three.js で Math.random を種(20260701・環境変数 K8_SEED)で固定。geom・car21・run21・track・light・cine・station を3回ずつ実行して出力が一致することを確認"
     }
   }
 }

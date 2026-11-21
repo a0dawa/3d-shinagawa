@@ -358,6 +358,11 @@ module.exports = function runHtml(htmlPath, exportExpr) {
   const m = html.match(/<script id="keio-main" type="text\/x-keio">([\s\S]*?)<\/script>/) || html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) { console.error('NO_SCRIPT'); process.exit(1); }
   install();
+  // 乱数を種で固定する(2026-11-20)。HTML は街並み・乗客などに Math.random を使うので、固定しないと
+  // 実行のたびに検証の数値がゆらぐ(例:乗り降りの人数)。measure_load.js・verify_ortho.js・capture.js と同じ式(mulberry32)。
+  // 種を変えるなら環境変数 K8_SEED
+  { let a = (parseInt(process.env.K8_SEED, 10) || 20260701) >>> 0;
+    Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   // 別ファイルの沿線の建物データ(<script src="plateau_bldg.js">)。HTML と同じ場所にあれば先に読む
   for (const nm of ['plateau_bldg.js', 'plateau_land.js', 'plateau_tex.js', 'plateau_dem.js', 'gsi_rail.js', 'gsi_trees.js']) {
     const pl = nodePath.join(nodePath.dirname(htmlPath), nm);
