@@ -50,6 +50,9 @@ node tools/verify_ortho.js --html "$HTML"
 echo "[12/12] 建物の外装(シェーダ ⇄ 検証用の式)..."
 node tools/verify_facade.js --html "$HTML"
 
+echo "[路面標示] 交差点・横断歩道・停止線・信号の周期・ガードパイプ(京王の road-marks) ..."
+node tools/verify_marks.js "$HTML"
+
 # 地形の標高 ⇄ 国土地理院 DEM5A(線路沿い ±600m の点でモデルの標高を書き出して比べる。ネットに繋がらなければ SKIP)
 echo "[地形] モデルの標高 ⇄ 国土地理院 DEM5A(基準面のずれ・RMSE・95%点) ..."
 node tools/terrain_points.js "$HTML" --n 800 > "${TMPDIR:-/tmp}/terrain_points.json"

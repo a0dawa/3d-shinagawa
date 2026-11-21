@@ -2,7 +2,7 @@
   "_doc": "3d-keio(上流)のどこまでをこのリポジトリへ取り込んだかの記録。取り込んだら audited と keio_commit を更新する。overrides は自動検出(tools/upstream_status.py の status)より優先:status は adopted/partial/todo/n/a と note。京王でできた機能の目録は 3d-keio の reference/porting/features.json",
   "upstream": "a0dawa/3d-keio",
   "upstream_branch": "claude/blender-files-push-65wzu0",
-  "audited": "2026-11-19",
+  "audited": "2026-11-21",
   "keio_commit": "588fa98",
   "overrides": {
     "facade": {
@@ -10,8 +10,8 @@
       "note": "2026-11-20 取り込み(付属物を含む)。stc は用途から・st は gsi_city.py の高さ÷3.3 の推定。⑦ の外装の検査(verify_city)は未移植(verify_facade.js=⑫ は移植済み)"
     },
     "road-marks": {
-      "status": "todo",
-      "note": "未着手(判断が要る)。京王のものは PLATEAU の道路の交差部(sec 4)・歩道 SIDEWALKS の runs・信号の灯(SIGNAL)に依存。品川の道路は国土地理院の中心線の帯で交差部が無いため、gsi_city.py に交差点(端点が3本以上集まる所)の面 sec 4 を作る設計から要る"
+      "status": "adopted",
+      "note": "2026-11-21 取り込み(8d章 ROAD_MARKS・SIGNAL)。京王は PLATEAU の交差部 sec 4 から作るが、品川の道路は国土地理院の中心線の帯で交差部が無いので、新宿(3d-shinjuku)と同じく中心線どうしの交差・近接から交差点を検出。中心線は帯(PLR1。左を往き右を還る)の左右の中点から復元。橋・高架(sec 2)と自動車専用は作らない。面は 500m 四方×1 Mesh(頂点カラー)・注視点から 450m 内だけ描く。検証 tools/verify_marks.js(verify_all の [路面標示]。故障注入で NG を確認)。未了:橋・高架の上の標示・京王の sec 4 の面に基づく横断歩道の位置の精密化・夜の路面標示の濡れ"
     },
     "trees-gsi": {
       "status": "adopted",
@@ -32,6 +32,10 @@
     "verify-seed": {
       "status": "adopted",
       "note": "2026-11-21 tools/stub_three.js で Math.random を種(20260701・環境変数 K8_SEED)で固定。geom・car21・run21・track・light・cine・station を3回ずつ実行して出力が一致することを確認"
+    },
+    "terrain-dem-check": {
+      "status": "adopted",
+      "note": "2026-11-21 tools/terrain_points.js・terrain_vs_gsi.py(verify_all の [地形])。モデルの標高 ⇄ 国土地理院 DEM5A。地形の区間(線路から 61〜480m)で 基準面のずれ 0.00m・RMSE 0.77m・95%点 1.69m"
     }
   }
 }
